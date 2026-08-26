@@ -18,3 +18,5 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_COACHING_867C5 }}
           channelId: live
           projectId: coaching-867c5
+        env:
+          FIREBASE_CLI_EXPERIMENTS: webframeworks
