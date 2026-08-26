@@ -5,11 +5,12 @@ import { ArrowLeft, Dumbbell, Save, Loader2, Search, Activity, AlertTriangle, X,
 import VisorEjercicios from "./visorejercicios";
 import EstructuraRutina from "./estructurarutina";
 import { db, auth } from "../../../lib/firebase"; 
-// Importamos doc y updateDoc para poder sobreescribir la rutina
-import { collection, addDoc, doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, doc, updateDoc, serverTimestamp, getDoc, getDocs } from "firebase/firestore";
 
 interface CreacionRutinaProps {
   onBack: () => void;
+  tipoRutina?: "personal" | "prearmada" | "asignada"; 
+  targetUserId?: string; 
 }
 
 const MOTIVOS_REPORTE = [
@@ -20,33 +21,39 @@ const MOTIVOS_REPORTE = [
   "Otro problema"
 ];
 
-export default function CreacionRutinaModule({ onBack }: CreacionRutinaProps) {
+// LÍMITES POR ROL
+const LIMITES_RUTINAS = {
+  clasico: 4,
+  tester: 50,
+  entrenador: 50,
+  admin: Infinity
+};
+
+export default function CreacionRutinaModule({ onBack, tipoRutina = "personal", targetUserId }: CreacionRutinaProps) {
+  
+  // KEYS DINÁMICAS DE CACHÉ PARA EVITAR CHOQUES DE MEMORIA
+  const PREFIX = tipoRutina === "prearmada" ? "cv_prearmada_" : tipoRutina === "asignada" ? "cv_asignada_" : "cv_";
+  const KEY_EDIT_ID = `${PREFIX}edit_rutina_id`;
+  const KEY_DRAFT_NOMBRE = `${PREFIX}draft_nombre`;
+  const KEY_DRAFT_EJERCICIOS = `${PREFIX}draft_ejercicios`;
+  
+  const COLECTION_TARGET = tipoRutina === "prearmada" ? "rutinasprearmadas" : "rutinas";
+
   // Estado para controlar las Pestañas
   const [activeTab, setActiveTab] = useState<"visor" | "estructura">("visor");
 
-  // Verificar si estamos Editando una Rutina Existente
-  const [editRoutineId, setEditRoutineId] = useState<string | null>(() => {
-    if (typeof window !== "undefined") return sessionStorage.getItem("cv_edit_rutina_id");
-    return null;
-  });
-
-  // ÚNICO ESTADO MAESTRO PARA TODO
-  const [nombreRutina, setNombreRutina] = useState(() => {
-    if (typeof window !== "undefined") return sessionStorage.getItem("cv_draft_nombre") || "";
-    return "";
-  });
+  // Estados Base
+  const [editRoutineId, setEditRoutineId] = useState<string | null>(null);
+  const [nombreRutina, setNombreRutina] = useState<string>("");
+  const [ejercicios, setEjercicios] = useState<any[]>([]);
   
-  const [ejercicios, setEjercicios] = useState<any[]>(() => {
-    if (typeof window !== "undefined") {
-      const draft = sessionStorage.getItem("coachvital_draft_ejercicios");
-      return draft ? JSON.parse(draft) : [];
-    }
-    return [];
-  });
+  // NUEVO ESTADO DE SEGURIDAD PARA EVITAR SOBREESCRITURAS DE CACHÉ
+  const [isLoaded, setIsLoaded] = useState(false);
 
   const [guardando, setGuardando] = useState(false);
+  const [userRole, setUserRole] = useState<string>("clasico");
 
-  // Estados para Pop-up de Sistema (Alertas y Confirmaciones)
+  // Estados para Pop-up de Sistema
   const [alertConfig, setAlertConfig] = useState<{
     type: 'success' | 'error' | 'warning';
     title: string;
@@ -54,28 +61,97 @@ export default function CreacionRutinaModule({ onBack }: CreacionRutinaProps) {
     confirmText?: string;
     cancelText?: string;
     onConfirm?: () => void;
+    onCancel?: () => void;
   } | null>(null);
 
-  // Estados para el Modal de Reporte
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportReason, setReportReason] = useState("");
   const [reportComment, setReportComment] = useState("");
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
 
-  // Auto-guardado en caché (El borrador/edición se guarda en tiempo real localmente)
   useEffect(() => {
-    sessionStorage.setItem("coachvital_draft_ejercicios", JSON.stringify(ejercicios));
-    sessionStorage.setItem("cv_draft_nombre", nombreRutina);
-  }, [ejercicios, nombreRutina]);
+    const fetchUserRole = async () => {
+      const user = auth.currentUser;
+      if (!user) return;
+      try {
+        const userDoc = await getDoc(doc(db, "users", user.uid));
+        if (userDoc.exists()) {
+          setUserRole(userDoc.data().rol || "clasico");
+        }
+      } catch (error) {
+        console.error("Error obteniendo rol:", error);
+      }
+    };
+    fetchUserRole();
+  }, []);
+
+  // INICIALIZACIÓN SEGURA: Lee memoria y hace Fallback a Firebase si es necesario
+  useEffect(() => {
+    const loadInitialData = async () => {
+      const storedId = sessionStorage.getItem(KEY_EDIT_ID);
+      const storedNombre = sessionStorage.getItem(KEY_DRAFT_NOMBRE);
+      const storedEjs = sessionStorage.getItem(KEY_DRAFT_EJERCICIOS);
+
+      let parsedEjs = [];
+      try {
+        if (storedEjs) parsedEjs = JSON.parse(storedEjs);
+      } catch(e) { console.error("Error parseando ejercicios caché"); }
+
+      if (storedId) setEditRoutineId(storedId);
+      if (storedNombre) setNombreRutina(storedNombre);
+      if (parsedEjs.length > 0) setEjercicios(parsedEjs);
+
+      // FALLBACK DE SEGURIDAD: Si vamos a editar pero la caché falló/está vacía, forzamos lectura de Firebase
+      if (storedId && parsedEjs.length === 0) {
+        const user = auth.currentUser;
+        if (user) {
+          const targetId = tipoRutina === "asignada" && targetUserId ? targetUserId : user.uid;
+          try {
+            const docRef = doc(db, "users", targetId, COLECTION_TARGET, storedId);
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+              const data = docSnap.data();
+              setNombreRutina(data.nombre || "");
+              setEjercicios(data.ejercicios || []);
+              parsedEjs = data.ejercicios || [];
+            }
+          } catch (error) {
+            console.error("Error cargando rutina desde Firebase:", error);
+          }
+        }
+      }
+
+      // Si estamos editando o hay ejercicios recuperados, abrimos la pestaña de estructura automáticamente
+      if (storedId || parsedEjs.length > 0) {
+        setActiveTab("estructura");
+      }
+
+      setIsLoaded(true); // Desbloqueamos el auto-guardado
+    };
+
+    loadInitialData();
+  }, [KEY_EDIT_ID, KEY_DRAFT_NOMBRE, KEY_DRAFT_EJERCICIOS, COLECTION_TARGET, targetUserId, tipoRutina]);
+
+  // AUTO-GUARDADO PROTEGIDO (Solo actúa si ya se completó la carga inicial)
+  useEffect(() => {
+    if (!isLoaded) return; 
+    sessionStorage.setItem(KEY_DRAFT_EJERCICIOS, JSON.stringify(ejercicios));
+    sessionStorage.setItem(KEY_DRAFT_NOMBRE, nombreRutina);
+  }, [ejercicios, nombreRutina, isLoaded, KEY_DRAFT_EJERCICIOS, KEY_DRAFT_NOMBRE]);
 
   const handleAddExercise = (ejercicioBase: any) => {
+    // 🔴 CLONACIÓN PROFUNDA: Desvincula completamente el ejercicio de su origen en memoria
+    const ejercicioClonado = JSON.parse(JSON.stringify(ejercicioBase));
+    
     const nuevoEjercicio = {
-      ...ejercicioBase,
+      ...ejercicioClonado,
       descansoSegundos: 90,
       nota: "",
       series: []
     };
+    
     setEjercicios([...ejercicios, nuevoEjercicio]);
+    setActiveTab("estructura"); // Al añadir, te pasamos directamente a verlo
   };
 
   const handleUpdateEjercicios = (nuevosEjercicios: any[]) => {
@@ -87,46 +163,78 @@ export default function CreacionRutinaModule({ onBack }: CreacionRutinaProps) {
     
     const user = auth.currentUser;
     if (!user) {
-      setAlertConfig({ type: 'error', title: 'Error de Sesión', message: 'No hay una sesión de usuario activa.' });
+      setAlertConfig({ type: 'error', title: 'Error de Sesión', message: 'No hay una sesión activa.' });
       return;
     }
 
     setGuardando(true);
 
     try {
-      const userId = user.uid;
+      const myUserId = user.uid;
+      const targetId = tipoRutina === "asignada" && targetUserId ? targetUserId : myUserId;
 
-      const datosRutina = {
+      if (!editRoutineId && tipoRutina !== "prearmada") {
+        let targetRoleForLimits = userRole;
+        
+        if (tipoRutina === "asignada") {
+          const targetDoc = await getDoc(doc(db, "users", targetId));
+          if (targetDoc.exists()) {
+            targetRoleForLimits = targetDoc.data().rol || "clasico";
+          }
+        }
+
+        const snapshot = await getDocs(collection(db, "users", targetId, "rutinas"));
+        const currentCount = snapshot.size;
+        const limit = LIMITES_RUTINAS[targetRoleForLimits as keyof typeof LIMITES_RUTINAS] || LIMITES_RUTINAS.clasico;
+
+        if (currentCount >= limit) {
+          setAlertConfig({
+            type: 'warning',
+            title: tipoRutina === "asignada" ? 'Límite del Cliente Alcanzado' : 'Límite de Rutinas Alcanzado',
+            message: tipoRutina === "asignada" 
+              ? `Este cliente (${targetRoleForLimits}) permite un máximo de ${limit} rutinas. Pídele que elimine una antigua o que mejore su cuenta a Clásico+ para poder enviarle más.` 
+              : `Tu cuenta (${userRole}) permite un máximo de ${limit} rutinas. Elimina una rutina antigua o mejora tu plan para crear más.`,
+            confirmText: 'Entendido'
+          });
+          setGuardando(false);
+          return;
+        }
+      }
+
+      const datosRutina: any = {
         nombre: nombreRutina.trim(),
         ejercicios: ejercicios,
         actualizadoEn: serverTimestamp(),
       };
 
+      if (tipoRutina === "asignada") {
+        datosRutina.asignadaPor = myUserId;
+      }
+
       if (editRoutineId) {
-        // EDICIÓN: Actualizar documento existente
-        const rutinaRef = doc(db, "users", userId, "rutinas", editRoutineId);
+        const rutinaRef = doc(db, "users", targetId, COLECTION_TARGET, editRoutineId);
         await updateDoc(rutinaRef, datosRutina);
       } else {
-        // CREACIÓN: Crear nuevo documento
-        const rutinasUserRef = collection(db, "users", userId, "rutinas");
-        await addDoc(rutinasUserRef, {
+        const rutinasRef = collection(db, "users", targetId, COLECTION_TARGET);
+        await addDoc(rutinasRef, {
           ...datosRutina,
           creadoEn: serverTimestamp(),
-          uid: userId,
+          uid: targetId,
         });
       }
 
-      // Limpiar cachés al tener éxito
-      sessionStorage.removeItem("coachvital_draft_ejercicios");
-      sessionStorage.removeItem("cv_draft_nombre");
-      sessionStorage.removeItem("cv_edit_rutina_id");
+      sessionStorage.removeItem(KEY_DRAFT_EJERCICIOS);
+      sessionStorage.removeItem(KEY_DRAFT_NOMBRE);
+      sessionStorage.removeItem(KEY_EDIT_ID);
 
       setAlertConfig({
         type: 'success',
-        title: editRoutineId ? 'Cambios Guardados' : '¡Rutina Creada!',
+        title: editRoutineId ? 'Cambios Guardados' : '¡Guardado exitoso!',
         message: editRoutineId 
           ? `La rutina "${nombreRutina}" se actualizó correctamente.` 
-          : `El protocolo "${nombreRutina}" se ha guardado exitosamente.`,
+          : tipoRutina === "asignada"
+            ? `La rutina "${nombreRutina}" se ha asignado al cliente exitosamente.`
+            : `La ${tipoRutina === "prearmada" ? 'plantilla' : 'rutina'} "${nombreRutina}" se ha guardado exitosamente.`,
         confirmText: 'Continuar',
         onConfirm: () => {
           setAlertConfig(null);
@@ -135,48 +243,60 @@ export default function CreacionRutinaModule({ onBack }: CreacionRutinaProps) {
       });
       
     } catch (error) {
-      console.error("Error al guardar la rutina:", error);
+      console.error("Error al guardar:", error);
       setAlertConfig({
         type: 'error',
         title: 'Error de Guardado',
-        message: 'Hubo un error al guardar la rutina. Revisa tu conexión e inténtalo de nuevo.'
+        message: 'Hubo un error al guardar. Revisa tu conexión e inténtalo de nuevo.'
       });
     } finally {
       setGuardando(false);
     }
   };
 
-  // LÓGICA DE SALIDA INTELIGENTE (Borrador vs Descartar Edición)
   const handleExit = () => {
+    const estaVacia = ejercicios.length === 0 && nombreRutina.trim() === "";
+
     if (editRoutineId) {
-      // Si está editando una rutina que ya existe, salir descarta los cambios
       setAlertConfig({
         type: 'warning',
         title: 'Descartar Cambios',
-        message: '¿Estás seguro de salir? Las modificaciones que hiciste a esta rutina no se guardarán.',
-        confirmText: 'Sí, descartar',
-        cancelText: 'Cancelar',
-        onConfirm: () => {
-          sessionStorage.removeItem("coachvital_draft_ejercicios");
-          sessionStorage.removeItem("cv_draft_nombre");
-          sessionStorage.removeItem("cv_edit_rutina_id");
-          setAlertConfig(null);
-          onBack();
-        }
-      });
-    } else {
-      // Si es una rutina nueva, salir guarda el borrador
-      setAlertConfig({
-        type: 'success',
-        title: 'Borrador Guardado',
-        message: 'Tus avances ya están guardados en tu dispositivo. Puedes regresar más tarde para terminar la rutina.',
-        confirmText: 'Salir',
+        message: '¿Estás seguro de salir? Las modificaciones que hiciste no se guardarán.',
+        confirmText: 'Sí, salir',
         cancelText: 'Seguir editando',
         onConfirm: () => {
+          sessionStorage.removeItem(KEY_DRAFT_EJERCICIOS);
+          sessionStorage.removeItem(KEY_DRAFT_NOMBRE);
+          sessionStorage.removeItem(KEY_EDIT_ID);
           setAlertConfig(null);
-          onBack(); 
-        }
+          onBack();
+        },
+        onCancel: () => setAlertConfig(null)
       });
+    } else {
+      if (estaVacia) {
+        sessionStorage.removeItem(KEY_DRAFT_EJERCICIOS);
+        sessionStorage.removeItem(KEY_DRAFT_NOMBRE);
+        onBack();
+      } else {
+        setAlertConfig({
+          type: 'warning',
+          title: '¿Salir del creador?',
+          message: 'Tienes trabajo en proceso. Puedes guardarlo como borrador para continuar después o descartarlo.',
+          confirmText: 'Guardar Borrador',
+          cancelText: 'Descartar Todo',
+          onConfirm: () => {
+            setAlertConfig(null);
+            onBack(); 
+          },
+          onCancel: () => {
+            sessionStorage.removeItem(KEY_DRAFT_EJERCICIOS);
+            sessionStorage.removeItem(KEY_DRAFT_NOMBRE);
+            setAlertConfig(null);
+            onBack();
+          }
+        });
+      }
     }
   };
 
@@ -224,36 +344,35 @@ export default function CreacionRutinaModule({ onBack }: CreacionRutinaProps) {
       <div className="w-full max-w-5xl mx-auto relative z-10 flex flex-col pb-16">
         
         {/* Header del Constructor */}
-        <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4 mt-2">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 border-b border-white/10 pb-4 mt-2">
           
-          {/* BOTÓN SALIR DINÁMICO */}
           <button onClick={handleExit} className="flex items-center gap-2 text-zinc-400 hover:text-amber-500 transition-colors group">
             <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
             <span className="text-[11px] font-bold uppercase tracking-widest">
-              {editRoutineId ? "Descartar Cambios" : "Guardar Borrador"}
+              {editRoutineId ? "Salir" : (ejercicios.length === 0 && !nombreRutina.trim() ? "Salir" : "Salir / Opciones")}
             </span>
           </button>
           
-          <div className="text-right flex flex-col items-end">
+          <div className="w-full md:w-auto flex flex-col items-start md:items-end">
             <h1 className="text-xl md:text-3xl font-black tracking-tighter text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.2)] flex items-center gap-3">
-              CREADOR <Dumbbell className="w-6 h-6 md:w-8 md:h-8 text-rose-500" />
+              {tipoRutina === "prearmada" ? "NUEVA PLANTILLA" : tipoRutina === "asignada" ? "ASIGNAR A CLIENTE" : "CREADOR"} 
+              <Dumbbell className="w-6 h-6 md:w-8 md:h-8 text-rose-500" />
             </h1>
-            <div className="flex items-center gap-3 mt-1">
+            <div className="flex items-center gap-3 mt-2 md:mt-1">
               
-              {/* Botón de Reporte */}
               <button 
                 onClick={() => setShowReportModal(true)} 
-                className="text-zinc-500 hover:text-amber-500 transition-colors flex items-center gap-1 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800 hover:border-amber-500/50"
+                className="text-zinc-500 hover:text-amber-500 transition-colors flex items-center gap-1 bg-zinc-900 px-2 py-1 md:py-0.5 rounded border border-zinc-800 hover:border-amber-500/50"
                 title="Reportar problema en esta pantalla"
               >
-                <AlertTriangle className="w-3 h-3" />
-                <span className="text-[8px] font-bold uppercase tracking-widest hidden sm:block">Reportar</span>
+                <AlertTriangle className="w-3 h-3 md:w-3 md:h-3" />
+                <span className="text-[8px] font-bold uppercase tracking-widest block">Reportar</span>
               </button>
 
               <div className="flex items-center gap-2">
                 <span className={`w-2 h-2 rounded-full animate-pulse ${editRoutineId ? 'bg-cyan-500' : 'bg-amber-500'}`}></span>
                 <p className={`text-[9px] font-bold uppercase tracking-[0.2em] ${editRoutineId ? 'text-cyan-400' : 'text-amber-500'}`}>
-                  {editRoutineId ? "Editando Rutina" : "Borrador Automático"}
+                  {editRoutineId ? "Editando" : "Borrador"}
                 </p>
               </div>
             </div>
@@ -261,27 +380,28 @@ export default function CreacionRutinaModule({ onBack }: CreacionRutinaProps) {
         </div>
 
         {/* NAVEGACIÓN POR PESTAÑAS */}
-        <div className="flex items-center gap-8 border-b border-white/10 mb-6 px-2 overflow-x-auto custom-scrollbar">
-          
-          {/* Pestaña 1: EJERCICIOS */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-8 border-b-0 sm:border-b border-white/10 mb-6 sm:px-2">
           <button
             onClick={() => setActiveTab("visor")}
-            className={`pb-4 text-[11px] font-black uppercase tracking-widest transition-all relative flex items-center gap-2 whitespace-nowrap ${
-              activeTab === "visor" ? "text-rose-500" : "text-zinc-500 hover:text-zinc-300"
+            className={`p-3 sm:p-0 sm:pb-4 text-[11px] font-black uppercase tracking-widest transition-all relative flex items-center justify-center sm:justify-start gap-2 rounded-lg sm:rounded-none whitespace-nowrap ${
+              activeTab === "visor" 
+                ? "bg-rose-500/10 sm:bg-transparent text-rose-500 border border-rose-500/30 sm:border-transparent" 
+                : "bg-zinc-900/50 sm:bg-transparent text-zinc-500 border border-transparent hover:text-zinc-300 hover:bg-zinc-800/50 sm:hover:bg-transparent"
             }`}
           >
             <Search className="w-4 h-4" />
             SELECTOR DE EJERCICIOS
             {activeTab === "visor" && (
-              <div className="absolute bottom-0 left-0 w-full h-[3px] bg-rose-500 rounded-t-full shadow-[0_-2px_10px_rgba(244,63,94,0.5)]" />
+              <div className="hidden sm:block absolute bottom-0 left-0 w-full h-[3px] bg-rose-500 rounded-t-full shadow-[0_-2px_10px_rgba(244,63,94,0.5)]" />
             )}
           </button>
 
-          {/* Pestaña 2: Estructura */}
           <button
             onClick={() => setActiveTab("estructura")}
-            className={`pb-4 text-[11px] font-black uppercase tracking-widest transition-all relative flex items-center gap-2 whitespace-nowrap ${
-              activeTab === "estructura" ? "text-rose-500" : "text-zinc-500 hover:text-zinc-300"
+            className={`p-3 sm:p-0 sm:pb-4 text-[11px] font-black uppercase tracking-widest transition-all relative flex items-center justify-center sm:justify-start gap-2 rounded-lg sm:rounded-none whitespace-nowrap ${
+              activeTab === "estructura" 
+                ? "bg-rose-500/10 sm:bg-transparent text-rose-500 border border-rose-500/30 sm:border-transparent" 
+                : "bg-zinc-900/50 sm:bg-transparent text-zinc-500 border border-transparent hover:text-zinc-300 hover:bg-zinc-800/50 sm:hover:bg-transparent"
             }`}
           >
             <Activity className="w-4 h-4" />
@@ -296,10 +416,9 @@ export default function CreacionRutinaModule({ onBack }: CreacionRutinaProps) {
             )}
 
             {activeTab === "estructura" && (
-              <div className="absolute bottom-0 left-0 w-full h-[3px] bg-rose-500 rounded-t-full shadow-[0_-2px_10px_rgba(244,63,94,0.5)]" />
+              <div className="hidden sm:block absolute bottom-0 left-0 w-full h-[3px] bg-rose-500 rounded-t-full shadow-[0_-2px_10px_rgba(244,63,94,0.5)]" />
             )}
           </button>
-
         </div>
 
         {/* CONTENIDO DE LAS PESTAÑAS */}
@@ -317,6 +436,7 @@ export default function CreacionRutinaModule({ onBack }: CreacionRutinaProps) {
                 onNameChange={setNombreRutina}
                 ejercicios={ejercicios} 
                 onUpdateEjercicios={handleUpdateEjercicios}
+                targetUserId={targetUserId}
               />
 
               {/* BOTÓN GUARDAR DINÁMICO */}
@@ -327,7 +447,7 @@ export default function CreacionRutinaModule({ onBack }: CreacionRutinaProps) {
                     ? "bg-cyan-600 hover:bg-cyan-500 shadow-[0_0_30px_rgba(8,145,178,0.3)] hover:shadow-[0_0_40px_rgba(8,145,178,0.6)]" 
                     : "bg-rose-500 hover:bg-rose-400 shadow-[0_0_30px_rgba(244,63,94,0.3)] hover:shadow-[0_0_40px_rgba(244,63,94,0.6)]"
                 }`}
-                disabled={ejercicios.length === 0 || !nombreRutina.trim() || guardando}
+                disabled={ejercicios.length === 0 || !nombreRutina.trim() || guardando || !isLoaded}
               >
                 {guardando ? (
                   <>
@@ -336,7 +456,12 @@ export default function CreacionRutinaModule({ onBack }: CreacionRutinaProps) {
                 ) : (
                   <>
                     <Save className="w-4 h-4" /> 
-                    {editRoutineId ? "Guardar Cambios" : `Crear rutina "${nombreRutina.trim() || 'Sin Nombre'}"`}
+                    {editRoutineId 
+                      ? "Guardar Cambios" 
+                      : tipoRutina === "asignada"
+                        ? `Asignar a cliente`
+                        : `Crear ${tipoRutina === "prearmada" ? 'plantilla' : 'rutina'} "${nombreRutina.trim() || 'Sin Nombre'}"`
+                    }
                   </>
                 )}
               </button>
@@ -419,11 +544,20 @@ export default function CreacionRutinaModule({ onBack }: CreacionRutinaProps) {
       {/* POP-UP DE ALERTA DEL SISTEMA (ÉXITO / ERROR / ADVERTENCIA) */}
       {alertConfig && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in zoom-in-95 duration-200">
-          <div className={`bg-zinc-950 border rounded-2xl w-full max-w-sm flex flex-col overflow-hidden shadow-2xl ${
+          <div className={`bg-zinc-950 border rounded-2xl w-full max-w-sm flex flex-col overflow-hidden shadow-2xl relative ${
             alertConfig.type === 'success' ? 'border-emerald-500/30 shadow-[0_0_40px_rgba(16,185,129,0.15)]' :
             alertConfig.type === 'error' ? 'border-rose-500/30 shadow-[0_0_40px_rgba(244,63,94,0.15)]' :
             'border-amber-500/30 shadow-[0_0_40px_rgba(245,158,11,0.15)]'
           }`}>
+            
+            {/* BOTÓN CERRAR X */}
+            <button 
+              onClick={() => setAlertConfig(null)}
+              className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-10"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
             <div className="p-8 text-center space-y-5">
               
               <div className={`mx-auto w-16 h-16 rounded-full flex items-center justify-center ${
@@ -444,7 +578,10 @@ export default function CreacionRutinaModule({ onBack }: CreacionRutinaProps) {
               <div className="flex gap-3 pt-2">
                 {alertConfig.cancelText && (
                   <button
-                    onClick={() => setAlertConfig(null)}
+                    onClick={() => {
+                      if (alertConfig.onCancel) alertConfig.onCancel();
+                      else setAlertConfig(null);
+                    }}
                     className="flex-1 py-3.5 rounded-xl font-bold uppercase tracking-widest text-[10px] text-zinc-400 bg-zinc-900 border border-zinc-800 hover:text-white hover:bg-zinc-800 transition-colors"
                   >
                     {alertConfig.cancelText}

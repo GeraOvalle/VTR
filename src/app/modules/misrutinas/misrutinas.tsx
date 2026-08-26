@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { 
   ArrowLeft, Plus, Dumbbell, Lock, Play, 
-  Settings2, Loader2, Database, Languages, Edit3, X, Save, AlertTriangle, CheckCircle2, Send, Trash2
+  Settings2, Loader2, Database, Languages, Edit3, X, Save, AlertTriangle, CheckCircle2, Send, Trash2, Infinity
 } from "lucide-react";
 import { auth, db } from "../../lib/firebase";
 import { doc, getDoc, collection, getDocs, query, orderBy, updateDoc, deleteDoc, addDoc, serverTimestamp } from "firebase/firestore";
@@ -11,7 +11,10 @@ import CreacionRutinaModule from "./creacionrutina/creacionrutina";
 
 import EjerciciosExtraccionModule from "./ejerciciosextraccion";
 import EjerciciosTraduccionModule from "./ejerciciostraduccion";
-import IniciarRutinaModule from "./ejecucionrutina/iniciarrutina";
+
+// IMPORTAMOS EL CONTEXTO GLOBAL
+import { useWorkout } from "../../context/workoutcontext";
+
 interface MisRutinasModuleProps {
   onBack: () => void;
 }
@@ -50,13 +53,15 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
   
   const [rutinas, setRutinas] = useState<Rutina[]>([]);
   
+  // TRAEMOS LA FUNCIÓN DEL CEREBRO GLOBAL
+  const { iniciarEntrenamiento } = useWorkout();
+
   // Estados para Pop-ups e Interfaz
   const [iconModalRoutineId, setIconModalRoutineId] = useState<string | null>(null);
   const [selectedEmoji, setSelectedEmoji] = useState<string>("💪");
   const [isSavingIcon, setIsSavingIcon] = useState(false);
   
   const [activeSettingsMenu, setActiveSettingsMenu] = useState<string | null>(null);
-  const [routineToStart, setRoutineToStart] = useState<Rutina | null>(null); // Rutina seleccionada para iniciar
   
   // Estados para Alertas Custom y Reportes
   const [alertConfig, setAlertConfig] = useState<{
@@ -73,8 +78,10 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
   const [reportComment, setReportComment] = useState("");
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
 
+  // Lógica de Permisos según el Rol
+  const isPremium = ["tester", "entrenador", "admin"].includes(rol);
   const MAX_RUTINAS = 4;
-  const espaciosLibres = Math.max(0, MAX_RUTINAS - rutinas.length);
+  const espaciosLibres = isPremium ? 0 : Math.max(0, MAX_RUTINAS - rutinas.length);
 
   // Ref para cerrar el menú desplegable al hacer clic fuera
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -116,6 +123,33 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
 
     return () => unsubscribe();
   }, [showCreacion]); 
+
+  // 🔴 INTERCEPTOR: Evita iniciar otra rutina si ya hay una corriendo
+  const handleIniciarClick = (rutina: Rutina) => {
+    const user = auth.currentUser;
+    if (user) {
+      const sessionKey = `cv_active_session_${user.uid}`;
+      const savedSession = localStorage.getItem(sessionKey);
+      
+      if (savedSession) {
+        const parsed = JSON.parse(savedSession);
+        
+        // Si hay una sesión guardada y ES OTRA RUTINA DISTINTA
+        if (parsed.rutinaId !== rutina.id) {
+          setAlertConfig({
+            type: 'warning',
+            title: 'Entrenamiento en Curso',
+            message: `Ya tienes la rutina "${parsed.rutinaNombre}" en progreso. No puedes iniciar otra hasta que la guardes o la descartes.`,
+            confirmText: 'Entendido'
+          });
+          return; // Bloquea la acción
+        }
+      }
+    }
+    
+    // Si no hay conflicto (o es la misma rutina para retomarla), la iniciamos normal
+    iniciarEntrenamiento(rutina.id, rutina.nombre);
+  };
 
   // Acciones de Rutinas
   const handleCreateNew = () => {
@@ -229,7 +263,6 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
   if (showExtraction) return <EjerciciosExtraccionModule onBack={() => setShowExtraction(false)} />;
   if (showTranslation) return <EjerciciosTraduccionModule onBack={() => setShowTranslation(false)} />;
   if (showCreacion) return <CreacionRutinaModule onBack={() => setShowCreacion(false)} />;
-  if (routineToStart) return <IniciarRutinaModule rutinaId={routineToStart.id} rutinaNombre={routineToStart.nombre} onExitCompletely={() => setRoutineToStart(null)} />;
   
   const cardStyle = "bg-zinc-950/80 backdrop-blur-xl border border-white/20 rounded-2xl p-6 shadow-[0_0_30px_-10px_rgba(255,255,255,0.15)] ring-1 ring-white/10 hover:ring-white/30 hover:shadow-[0_0_40px_-10px_rgba(255,255,255,0.3)] transition-all flex flex-col group relative overflow-visible";
 
@@ -280,7 +313,7 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-16">
             
             {/* 1. RUTINAS EXISTENTES */}
-            {rutinas.slice(0, MAX_RUTINAS).map((rutina) => (
+            {(isPremium ? rutinas : rutinas.slice(0, MAX_RUTINAS)).map((rutina) => (
               <div key={rutina.id} className={cardStyle}>
                 <div className="flex justify-between items-start mb-6">
                   
@@ -338,13 +371,15 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
                 </div>
 
                 <div className="flex gap-2 mt-auto">
+                  {/* LLAMAMOS A NUESTRA FUNCIÓN INTERCEPTORA */}
                   <button 
-                    onClick={() => setRoutineToStart(rutina)}
+                    onClick={() => handleIniciarClick(rutina)}
                     className="flex-1 bg-white text-black font-black uppercase tracking-widest text-[10px] py-4 rounded-lg hover:shadow-[0_0_20px_rgba(255,255,255,0.4)] transition-all active:scale-[0.98] flex justify-center items-center gap-2"
                   >
                     <Play className="w-4 h-4 fill-black" />
                     Iniciar
                   </button>
+                  
                   <button 
                     onClick={(e) => {
                       e.stopPropagation();
@@ -359,38 +394,57 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
               </div>
             ))}
 
-            {/* 2. ESPACIOS LIBRES */}
-            {Array.from({ length: espaciosLibres }).map((_, index) => (
+            {/* 2. ESPACIOS LIBRES / CREACIÓN INFINITA */}
+            {isPremium ? (
               <button 
-                key={`free-slot-${index}`}
                 onClick={handleCreateNew}
-                className="bg-black/50 backdrop-blur-sm border-2 border-dashed border-white/30 rounded-2xl p-6 hover:border-white/80 hover:bg-white/5 transition-all flex flex-col items-center justify-center min-h-[250px] group active:scale-[0.98]"
+                className="bg-black/50 backdrop-blur-sm border-2 border-dashed border-emerald-500/30 rounded-2xl p-6 hover:border-emerald-500/80 hover:bg-emerald-500/5 transition-all flex flex-col items-center justify-center min-h-[250px] group active:scale-[0.98]"
               >
-                <div className="bg-white/10 p-4 rounded-full mb-4 group-hover:scale-110 group-hover:bg-white/20 transition-all">
-                  <Plus className="w-8 h-8 text-white" />
+                <div className="bg-emerald-500/10 p-4 rounded-full mb-4 group-hover:scale-110 group-hover:bg-emerald-500/20 transition-all">
+                  <Plus className="w-8 h-8 text-emerald-500" />
                 </div>
-                <span className="text-sm font-black uppercase tracking-[0.15em] text-white mb-1">
+                <span className="text-sm font-black uppercase tracking-[0.15em] text-emerald-500 mb-1">
                   Crear Rutina
                 </span>
-                <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-                  Espacio Disponible ({rutinas.length + index + 1}/{MAX_RUTINAS})
+                <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-500/50 flex items-center gap-1 mt-1">
+                  <Infinity className="w-3 h-3" /> Ilimitado
                 </span>
               </button>
-            ))}
+            ) : (
+              Array.from({ length: espaciosLibres }).map((_, index) => (
+                <button 
+                  key={`free-slot-${index}`}
+                  onClick={handleCreateNew}
+                  className="bg-black/50 backdrop-blur-sm border-2 border-dashed border-white/30 rounded-2xl p-6 hover:border-white/80 hover:bg-white/5 transition-all flex flex-col items-center justify-center min-h-[250px] group active:scale-[0.98]"
+                >
+                  <div className="bg-white/10 p-4 rounded-full mb-4 group-hover:scale-110 group-hover:bg-white/20 transition-all">
+                    <Plus className="w-8 h-8 text-white" />
+                  </div>
+                  <span className="text-sm font-black uppercase tracking-[0.15em] text-white mb-1">
+                    Crear Rutina
+                  </span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mt-1">
+                    Espacio Disponible ({rutinas.length + index + 1}/{MAX_RUTINAS})
+                  </span>
+                </button>
+              ))
+            )}
 
-            {/* 3. TARJETA BLOQUEADA */}
-            <div className="bg-zinc-950/50 backdrop-blur-sm border border-zinc-800 rounded-2xl p-6 flex flex-col items-center justify-center min-h-[250px] relative overflow-hidden opacity-70">
-              <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, #fff 10px, #fff 11px)' }}></div>
-              <div className="bg-zinc-900 p-4 rounded-full mb-4 border border-zinc-700 relative z-10">
-                <Lock className="w-6 h-6 text-zinc-500" />
+            {/* 3. TARJETA BLOQUEADA (SOLO CLÁSICO) */}
+            {!isPremium && (
+              <div className="bg-zinc-950/50 backdrop-blur-sm border border-zinc-800 rounded-2xl p-6 flex flex-col items-center justify-center min-h-[250px] relative overflow-hidden opacity-70">
+                <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, #fff 10px, #fff 11px)' }}></div>
+                <div className="bg-zinc-900 p-4 rounded-full mb-4 border border-zinc-700 relative z-10">
+                  <Lock className="w-6 h-6 text-zinc-500" />
+                </div>
+                <h3 className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400 mb-2 relative z-10 text-center">
+                  Ranura de Expansión
+                </h3>
+                <p className="text-[9px] text-zinc-600 text-center font-bold uppercase tracking-widest mt-4 max-w-[180px] relative z-10">
+                  Desbloquea rutinas ilimitadas próximamente
+                </p>
               </div>
-              <h3 className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400 mb-2 relative z-10 text-center">
-                Ranura de Expansión
-              </h3>
-              <p className="text-[9px] text-zinc-600 text-center font-bold uppercase tracking-widest mt-4 max-w-[180px] relative z-10">
-                Desbloquea rutinas ilimitadas próximamente
-              </p>
-            </div>
+            )}
 
           </div>
 
@@ -408,7 +462,7 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
         </div>
       </main>
 
-      {/* POP-UP: SELECTOR DE EMOJIS (Con Scroll Custom) */}
+      {/* POP-UP: SELECTOR DE EMOJIS */}
       {iconModalRoutineId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
           <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-sm flex flex-col shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden">

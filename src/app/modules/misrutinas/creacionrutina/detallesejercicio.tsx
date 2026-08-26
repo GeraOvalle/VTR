@@ -1,14 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { X, Dumbbell, Activity, CheckCircle2, Fingerprint, AlertTriangle, Send, Loader2 } from "lucide-react";
+import { X, Dumbbell, Activity, CheckCircle2, Fingerprint, AlertTriangle, Send, Loader2, ShieldAlert } from "lucide-react";
 import { db, auth } from "../../../lib/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 
 interface DetallesEjercicioProps {
   ejercicio: any;
   onClose: () => void;
-  onAdd: (ejercicio: any) => void;
+  onAdd?: (ejercicio: any) => void; 
 }
 
 const MOTIVOS_REPORTE = [
@@ -21,13 +21,13 @@ const MOTIVOS_REPORTE = [
 ];
 
 export default function DetallesEjercicio({ ejercicio, onClose, onAdd }: DetallesEjercicioProps) {
-  // Estados para el Modal de Reporte principal
+  const [imageFailed, setImageFailed] = useState(false);
+
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportReason, setReportReason] = useState("");
   const [reportComment, setReportComment] = useState("");
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
 
-  // Estado para el Pop-up de Sistema (Custom Alert)
   const [alertData, setAlertData] = useState<{ title: string; message: string; type: 'success' | 'error' | 'warning' } | null>(null);
 
   if (!ejercicio) return null;
@@ -82,7 +82,7 @@ export default function DetallesEjercicio({ ejercicio, onClose, onAdd }: Detalle
         <div className="bg-zinc-950 border border-rose-500/30 rounded-2xl w-full max-w-xl max-h-[90vh] flex flex-col shadow-[0_0_50px_rgba(244,63,94,0.15)] overflow-hidden">
           
           {/* Header del Modal */}
-          <div className="p-5 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50">
+          <div className="p-5 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50 shrink-0">
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
                 <Activity className="w-4 h-4 text-rose-500" />
@@ -95,7 +95,7 @@ export default function DetallesEjercicio({ ejercicio, onClose, onAdd }: Detalle
                 title="ID del ejercicio en Firestore"
               >
                 <Fingerprint className="w-3 h-3" />
-                ID: {ejercicio.id}
+                ID: {ejercicio.id || "Pendiente"}
               </div>
             </div>
 
@@ -119,18 +119,45 @@ export default function DetallesEjercicio({ ejercicio, onClose, onAdd }: Detalle
             
             {/* Visual y Datos Principales */}
             <div className="flex flex-col sm:flex-row gap-5 items-center bg-white/5 border border-white/5 rounded-xl p-4">
-              {ejercicio.gifUrl ? (
-                <img src={ejercicio.gifUrl} alt="GIF Ejercicio" className="w-32 h-32 rounded-lg bg-black object-cover border border-zinc-800 shadow-md shrink-0" />
-              ) : (
-                <div className="w-32 h-32 rounded-lg bg-black border border-zinc-800 flex items-center justify-center shrink-0">
-                  <Dumbbell className="w-10 h-10 text-zinc-600" />
-                </div>
-              )}
+              
+              {/* Contenedor Imagen Seguro */}
+              <div className="relative w-32 h-32 rounded-lg bg-black border border-zinc-800 flex items-center justify-center shrink-0 overflow-hidden shadow-md">
+                {ejercicio.gifUrl && !imageFailed ? (
+                  <img 
+                    src={ejercicio.gifUrl} 
+                    alt="GIF Ejercicio" 
+                    className="absolute inset-0 w-full h-full object-cover" 
+                    onError={() => setImageFailed(true)}
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center text-center p-2 opacity-70">
+                    <Dumbbell className="w-8 h-8 text-zinc-700 mb-1.5" />
+                    <span className="text-[8px] tracking-widest font-black text-zinc-500">SIN VISTA PREVIA</span>
+                    <span className="text-[6px] tracking-widest font-bold text-zinc-600 mt-1 uppercase">Estamos trabajando<br/>en ello</span>
+                  </div>
+                )}
+                {/* 🔴 Etiqueta de Ejercicio Personalizado */}
+                {ejercicio.isCustom && (
+                  <div className="absolute top-2 left-2 bg-cyan-500/90 text-white text-[8px] font-black uppercase px-2 py-1 rounded backdrop-blur-md shadow-sm z-10">
+                    Propio
+                  </div>
+                )}
+              </div>
               
               <div className="space-y-2 text-center sm:text-left w-full">
                 <h2 className="text-base font-black text-white capitalize tracking-wide">
                   {ejercicio.nombreEs || ejercicio.nombre}
                 </h2>
+                
+                {/* 🔴 Aviso de Revisión para el Usuario */}
+                {ejercicio.estadoRevision === "pendiente" && (
+                  <div className="inline-flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/30 text-amber-500 px-2 py-1 rounded-md mb-1">
+                    <ShieldAlert className="w-3 h-3" />
+                    <span className="text-[8px] font-black uppercase tracking-widest">
+                      Pendiente de Aprobación Global
+                    </span>
+                  </div>
+                )}
                 
                 <div className="flex flex-wrap gap-2 justify-center sm:justify-start pt-1">
                   <span className="bg-rose-500/10 border border-rose-500/30 text-rose-400 px-2.5 py-1 rounded text-[9px] font-black uppercase tracking-wider">
@@ -171,19 +198,22 @@ export default function DetallesEjercicio({ ejercicio, onClose, onAdd }: Detalle
           <div className="p-5 border-t border-zinc-800 bg-zinc-900/50 flex justify-end gap-3 shrink-0">
             <button 
               onClick={onClose}
-              className="px-5 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest text-zinc-400 hover:text-white transition-colors"
+              className="px-5 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest text-zinc-400 hover:text-white transition-colors border border-transparent hover:border-zinc-700 bg-zinc-900/80 hover:bg-zinc-800"
             >
-              Cerrar
+              Cerrar Vista
             </button>
-            <button 
-              onClick={() => {
-                onAdd(ejercicio);
-                onClose();
-              }}
-              className="bg-rose-500 text-white px-6 py-2.5 rounded-lg font-black uppercase tracking-widest text-[10px] shadow-[0_0_20px_rgba(244,63,94,0.3)] hover:scale-105 transition-all flex items-center gap-2"
-            >
-              <CheckCircle2 className="w-4 h-4" /> Agregar ejercicio
-            </button>
+            
+            {onAdd && (
+              <button 
+                onClick={() => {
+                  onAdd(ejercicio);
+                  onClose();
+                }}
+                className="bg-rose-500 text-white px-6 py-2.5 rounded-lg font-black uppercase tracking-widest text-[10px] shadow-[0_0_20px_rgba(244,63,94,0.3)] hover:scale-105 transition-all flex items-center gap-2"
+              >
+                <CheckCircle2 className="w-4 h-4" /> Agregar ejercicio
+              </button>
+            )}
           </div>
 
         </div>

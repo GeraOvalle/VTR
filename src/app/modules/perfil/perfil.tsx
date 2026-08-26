@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { 
   ArrowLeft, Save, User, Activity, Check, X, AlertTriangle, 
-  ChevronDown, ChevronUp, Ruler, TrendingUp, History, Loader2, Plus
+  ChevronDown, ChevronUp, Ruler, TrendingUp, History, Loader2, Plus, Lock, Unlock
 } from "lucide-react";
 import { auth, db } from "../../lib/firebase";
 import { doc, getDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
@@ -45,7 +45,7 @@ export default function PerfilModule({ onBack }: PerfilModuleProps) {
   // Estados de Identidad
   const [nombres, setNombres] = useState("");
   const [apellidos, setApellidos] = useState("");
-  const [usernameDisplay, setUsernameDisplay] = useState(""); // Ej: DiegoLopez
+  const [usernameDisplay, setUsernameDisplay] = useState("");
   const [edad, setEdad] = useState("");
   const [genero, setGenero] = useState("");
   const [objetivos, setObjetivos] = useState<string[]>([]);
@@ -53,7 +53,7 @@ export default function PerfilModule({ onBack }: PerfilModuleProps) {
   // Verificación de Username
   const [isCheckingUser, setIsCheckingUser] = useState(false);
   const [userAvailable, setUserAvailable] = useState<boolean | null>(null);
-  const [originalUsername, setOriginalUsername] = useState(""); // Siempre en minúsculas
+  const [originalUsername, setOriginalUsername] = useState("");
 
   // Estados de Composición Corporal
   const [compCorpAbierta, setCompCorpAbierta] = useState(false);
@@ -63,6 +63,9 @@ export default function PerfilModule({ onBack }: PerfilModuleProps) {
   const [grasa, setGrasa] = useState("");
   const [musculo, setMusculo] = useState("");
   const [bmi, setBmi] = useState("");
+  
+  // 🔴 NUEVO ESTADO: Privacidad de Métricas Avanzadas
+  const [metricasPublicas, setMetricasPublicas] = useState(false);
   
   // Circunferencias
   const [medidas, setMedidas] = useState({
@@ -101,8 +104,9 @@ export default function PerfilModule({ onBack }: PerfilModuleProps) {
           setGrasa(draft.grasa || dbData.grasa || "");
           setMusculo(draft.musculo || dbData.musculo || "");
           setBmi(draft.bmi || dbData.bmi || "");
+          setMetricasPublicas(draft.metricasPublicas !== undefined ? draft.metricasPublicas : (dbData.metricasPublicas || false));
           setMedidas(draft.medidas || dbData.medidas || { cuello: "", hombros: "", pecho: "", biceps: "", antebrazo: "", cintura: "", cadera: "", muslo: "", pantorrilla: "" });
-          setHasChanges(true); // Si hay caché, asumimos que hay cambios sin guardar
+          setHasChanges(true);
         } else {
           // Si no hay caché, cargar de DB
           setNombres(dbData.nombres || "");
@@ -116,6 +120,7 @@ export default function PerfilModule({ onBack }: PerfilModuleProps) {
           setGrasa(dbData.grasa || "");
           setMusculo(dbData.musculo || "");
           setBmi(dbData.bmi || "");
+          setMetricasPublicas(dbData.metricasPublicas || false);
           if (dbData.medidas) setMedidas(dbData.medidas);
         }
       } catch (error) {
@@ -132,12 +137,12 @@ export default function PerfilModule({ onBack }: PerfilModuleProps) {
     if (!loadingData) {
       const draft = {
         nombres, apellidos, usernameDisplay, edad, genero,
-        objetivos, peso, altura, grasa, musculo, bmi, medidas
+        objetivos, peso, altura, grasa, musculo, bmi, medidas, metricasPublicas
       };
       sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
       setHasChanges(true);
     }
-  }, [nombres, apellidos, usernameDisplay, edad, genero, objetivos, peso, altura, grasa, musculo, bmi, medidas, loadingData]);
+  }, [nombres, apellidos, usernameDisplay, edad, genero, objetivos, peso, altura, grasa, musculo, bmi, medidas, metricasPublicas, loadingData]);
 
   // Restringir Username (Solo letras)
   const handleUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -202,12 +207,13 @@ export default function PerfilModule({ onBack }: PerfilModuleProps) {
         musculo,
         bmi,
         medidas,
+        metricasPublicas, // 🔴 Se guarda en Firebase
         perfilCompletado: true
       });
       setOriginalUsername(usernameDisplay.toLowerCase());
       setHasChanges(false);
       setUserAvailable(null);
-      sessionStorage.removeItem(DRAFT_KEY); // Limpiar caché al guardar
+      sessionStorage.removeItem(DRAFT_KEY); 
     } catch (error) {
       console.error("Error guardando:", error);
     } finally {
@@ -215,7 +221,7 @@ export default function PerfilModule({ onBack }: PerfilModuleProps) {
     }
   };
 
-  const inputStyle = "w-full bg-white/5 border border-white/10 rounded-lg p-3 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-white/50 focus:bg-white/10 transition-all";
+  const inputStyle = "w-full bg-white/5 border border-white/10 rounded-lg p-3 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-white/50 focus:bg-white/10 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
   const labelStyle = "text-[10px] text-zinc-400 font-bold mb-1.5 ml-1 block";
   const cardStyle = "bg-zinc-950/80 backdrop-blur-xl border border-white/20 rounded-2xl p-6 shadow-[0_0_30px_-10px_rgba(255,255,255,0.15)] ring-1 ring-white/10";
 
@@ -267,11 +273,11 @@ export default function PerfilModule({ onBack }: PerfilModuleProps) {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className={labelStyle}>Nombre(s)</label>
-                    <input type="text" value={nombres} onChange={(e) => setNombres(e.target.value)} className={inputStyle} placeholder="Ej. David Gerardo" />
+                    <input type="text" value={nombres} onChange={(e) => setNombres(e.target.value)} className={inputStyle} />
                   </div>
                   <div>
                     <label className={labelStyle}>Apellidos</label>
-                    <input type="text" value={apellidos} onChange={(e) => setApellidos(e.target.value)} className={inputStyle} placeholder="Ej. Vital Ovalle" />
+                    <input type="text" value={apellidos} onChange={(e) => setApellidos(e.target.value)} className={inputStyle} />
                   </div>
                   
                   {/* Validación de Username */}
@@ -284,7 +290,7 @@ export default function PerfilModule({ onBack }: PerfilModuleProps) {
                         value={usernameDisplay} 
                         onChange={handleUsernameChange} 
                         className={`${inputStyle} pl-8 ${userAvailable === false ? 'border-rose-500/50 bg-rose-500/5 focus:border-rose-500' : ''}`} 
-                        placeholder="Solo letras. Ej: CoachVital" 
+                        placeholder="Solo letras" 
                       />
                       <div className="absolute right-3 top-1/2 -translate-y-1/2">
                         {isCheckingUser ? <Loader2 className="w-4 h-4 text-zinc-400 animate-spin" /> : 
@@ -301,7 +307,7 @@ export default function PerfilModule({ onBack }: PerfilModuleProps) {
 
                   <div>
                     <label className={labelStyle}>Edad</label>
-                    <input type="number" value={edad} onChange={(e) => setEdad(e.target.value)} className={inputStyle} placeholder="Ej. 26" />
+                    <input type="number" value={edad} onChange={(e) => setEdad(e.target.value)} className={inputStyle} />
                   </div>
                   <div>
                     <label className={labelStyle}>Género</label>
@@ -358,11 +364,11 @@ export default function PerfilModule({ onBack }: PerfilModuleProps) {
                     <div className="grid grid-cols-2 gap-4 mb-6">
                       <div>
                         <label className={labelStyle}>Peso (kg)</label>
-                        <input type="number" step="0.1" value={peso} onChange={(e) => setPeso(e.target.value)} className={inputStyle} placeholder="Ej. 70.0" />
+                        <input type="number" step="0.1" value={peso} onChange={(e) => setPeso(e.target.value)} className={inputStyle} />
                       </div>
                       <div>
                         <label className={labelStyle}>Altura (m)</label>
-                        <input type="number" step="0.01" value={altura} onChange={(e) => setAltura(e.target.value)} className={inputStyle} placeholder="Ej. 1.65" />
+                        <input type="number" step="0.01" value={altura} onChange={(e) => setAltura(e.target.value)} className={inputStyle} />
                       </div>
                     </div>
 
@@ -377,6 +383,26 @@ export default function PerfilModule({ onBack }: PerfilModuleProps) {
                       
                       {avanzadoAbierto && (
                         <div className="mt-5 space-y-5 animate-in fade-in duration-300">
+                          
+                          {/* 🔴 CONTROL DE PRIVACIDAD */}
+                          <div 
+                            onClick={() => setMetricasPublicas(!metricasPublicas)}
+                            className="p-4 bg-zinc-900 border border-zinc-800 rounded-xl flex items-center justify-between cursor-pointer hover:border-white/30 transition-all group"
+                          >
+                            <div className="flex-1 pr-4">
+                              <h4 className="text-[10px] font-black text-white uppercase tracking-widest mb-1 flex items-center gap-2">
+                                {metricasPublicas ? <Unlock className="w-3.5 h-3.5 text-white" /> : <Lock className="w-3.5 h-3.5 text-zinc-500" />}
+                                Compartir Métricas
+                              </h4>
+                              <p className="text-[9px] text-zinc-400 leading-relaxed font-medium">
+                                Permitir que tu entrenador y amigos vinculados puedan ver el detalle avanzado de tu composición corporal.
+                              </p>
+                            </div>
+                            <div className={`shrink-0 w-10 h-5 rounded-full relative transition-colors duration-300 ${metricasPublicas ? 'bg-white' : 'bg-zinc-800'}`}>
+                              <div className={`absolute top-[2px] w-4 h-4 rounded-full transition-all duration-300 ${metricasPublicas ? 'bg-black left-[22px]' : 'bg-zinc-500 left-[2px]'}`}></div>
+                            </div>
+                          </div>
+
                           <div className="grid grid-cols-3 gap-3">
                             <div><label className={labelStyle}>% Grasa</label><input type="number" value={grasa} onChange={(e) => setGrasa(e.target.value)} className={inputStyle} placeholder="%" /></div>
                             <div><label className={labelStyle}>% Músculo</label><input type="number" value={musculo} onChange={(e) => setMusculo(e.target.value)} className={inputStyle} placeholder="%" /></div>
@@ -453,7 +479,7 @@ export default function PerfilModule({ onBack }: PerfilModuleProps) {
                 <X className="w-6 h-6" />
               </button>
             </div>
-            <div className="p-5 overflow-y-auto flex-1 flex flex-wrap gap-2 content-start">
+            <div className="p-5 overflow-y-auto flex-1 flex flex-wrap gap-2 content-start custom-scrollbar">
               {[...OBJETIVOS_PRINCIPALES, ...OBJETIVOS_EXTRA].map((obj) => (
                 <button
                   key={`modal-${obj}`}

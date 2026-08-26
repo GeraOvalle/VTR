@@ -6,6 +6,7 @@ import { Eye, EyeOff, ShieldAlert, CheckSquare, Square, AlertTriangle, Loader2 }
 // Importación de módulos
 import RegisterModule from "./modules/principal/registro";
 import HomeModule from "./modules/home/home";
+import CompletarPerfil from "./modules/principal/completarperfil";
 
 // Importación de Firebase
 import { auth, db } from "./lib/firebase";
@@ -14,14 +15,24 @@ import {
   setPersistence, 
   browserLocalPersistence, 
   browserSessionPersistence,
-  onAuthStateChanged 
+  onAuthStateChanged,
+  signOut
 } from "firebase/auth";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { 
+  doc, 
+  getDoc, 
+  setDoc, 
+  serverTimestamp, 
+  collection, 
+  query, 
+  where, 
+  getCountFromServer // <-- IMPORTANTE: Para contar usuarios eficientemente
+} from "firebase/firestore";
 
 export default function LoginModule() {
   const [currentView, setCurrentView] = useState<"login" | "register" | "home">("login");
+  const [needsProfile, setNeedsProfile] = useState(false);
   
-  // Estado de inicialización global (Evita que parpadee el login al recargar)
   const [isInitializing, setIsInitializing] = useState(true);
 
   // Estados del formulario
@@ -34,21 +45,46 @@ export default function LoginModule() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // OBSERVADOR DEL SISTEMA: Mantiene la sesión viva al refrescar
+  // 1. Efecto para jalar el correo automáticamente si venimos del registro
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const emailGuardado = localStorage.getItem("cv_registered_email");
+    if (emailGuardado) {
+      setEmail(emailGuardado);
+      localStorage.removeItem("cv_registered_email");
+    }
+  }, []);
+
+  // 2. OBSERVADOR DEL SISTEMA: El "Cadenero"
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        // Si hay un usuario cacheado por Firebase, saltar directo al Home
+        
+        // BLOQUEO ESTRICTO: Si el correo no está verificado, lo pateamos fuera.
+        if (!user.emailVerified) {
+          await signOut(auth); // Cerramos esa sesión "fantasma"
+          setIsInitializing(false);
+          return; // Detenemos la ejecución, no entra a Home.
+        }
+
+        // Si pasó el bloqueo, verificamos si existe el documento y si tiene nombre
+        const userDocRef = doc(db, "users", user.uid);
+        const userDocSnap = await getDoc(userDocRef);
+        
+        if (!userDocSnap.exists() || !userDocSnap.data().nombre) {
+          setNeedsProfile(true);
+        } else {
+          setNeedsProfile(false);
+        }
+        
         setCurrentView("home");
       }
-      // Terminamos la inicialización del sistema
       setIsInitializing(false);
     });
 
     return () => unsubscribe();
   }, []);
 
-  // Manejador de Inicio de Sesión y Sincronización con Base de Datos
+  // 3. Manejador de Inicio de Sesión Manual
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -61,30 +97,47 @@ export default function LoginModule() {
     setLoading(true);
 
     try {
-      // 1. Configurar persistencia (Recordar sesión vs Sesión temporal)
       await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
-      
-      // 2. Iniciar sesión con Firebase Auth
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
       
-      // 3. REGISTRO EN BASE DE DATOS (Verificación de primera vez)
+      // BLOQUEO ESTRICTO EN LOGIN MANUAL: Validar correo verificado
+      if (!user.emailVerified) {
+        await signOut(auth); // Lo sacamos
+        setError("SISTEMA: Debes verificar tu correo antes de iniciar sesión. Revisa tu bandeja de entrada o SPAM.");
+        setLoading(false);
+        return;
+      }
+
       const userDocRef = doc(db, "users", user.uid);
       const userDocSnap = await getDoc(userDocRef);
 
-      // Si el documento NO existe, significa que es su primer login. Lo creamos.
-      if (!userDocSnap.exists()) {
+      // --- LÓGICA DE PRIMERA VEZ (CREACIÓN DE DOCUMENTO) ---
+      if (!userDocSnap.exists() || !userDocSnap.data().nombre) {
+        
+        // 1. Contar cuántos usuarios tienen el rol "tester"
+        const q = query(collection(db, "users"), where("rol", "==", "tester"));
+        const snapshot = await getCountFromServer(q);
+        const testerCount = snapshot.data().count;
+
+        // 2. Asignar rol: Si hay menos de 10 testers, le damos el lugar. Si no, es clásico.
+        const rolAsignado = testerCount < 10 ? "tester" : "clasico";
+
+        // 3. Guardar el documento con el rol correspondiente
         await setDoc(userDocRef, {
           uid: user.uid,
           email: user.email,
-          rol: "cliente", 
+          rol: rolAsignado, 
           fechaRegistro: serverTimestamp(),
           estado: "activo",
           perfilCompletado: false
-        });
+        }, { merge: true });
+        
+        setNeedsProfile(true);
+      } else {
+        setNeedsProfile(false);
       }
 
-      // 4. Si todo es exitoso, redirigir al módulo Home
       setCurrentView("home");
     } catch (err: any) {
       console.error(err);
@@ -104,7 +157,6 @@ export default function LoginModule() {
   if (isInitializing) {
     return (
       <main className="min-h-screen bg-black flex flex-col items-center justify-center relative overflow-hidden">
-        {/* Fondo Escamoso Táctico Suave */}
         <div 
           className="absolute inset-0 pointer-events-none z-0 opacity-20"
           style={{
@@ -130,6 +182,9 @@ export default function LoginModule() {
   }
 
   if (currentView === "home") {
+    if (needsProfile) {
+      return <CompletarPerfil onComplete={() => setNeedsProfile(false)} />;
+    }
     return <HomeModule />;
   }
 
@@ -137,7 +192,6 @@ export default function LoginModule() {
   return (
     <main className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-4 relative overflow-hidden font-sans selection:bg-rose-500/30">
       
-      {/* Fondo Escamoso Táctico / Patrón de Piel de Serpiente */}
       <div 
         className="absolute inset-0 pointer-events-none z-0 opacity-40"
         style={{
@@ -150,16 +204,12 @@ export default function LoginModule() {
         }}
       ></div>
 
-      {/* HUD Vignette & Light Effects */}
       <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-transparent via-black/80 to-black pointer-events-none z-0"></div>
       <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-50 z-10"></div>
 
-      {/* Main Panel con Marco de Neón Blanco Brillante */}
       <div className="w-full max-w-sm bg-zinc-950/95 backdrop-blur-xl border border-white/40 rounded-2xl p-8 pt-10 relative z-10 shadow-[0_0_50px_-10px_rgba(255,255,255,0.25)] ring-1 ring-white/20">
         
-        {/* Header con Logo */}
         <div className="flex flex-col items-center text-center mb-8">
-          
           <div className="relative mb-5 w-28 h-28 bg-white/[0.03] backdrop-blur-md rounded-2xl border border-white/15 flex items-center justify-center overflow-hidden shadow-[0_0_30px_rgba(159,18,57,0.25)] ring-1 ring-white/10 group">
              <div className="absolute inset-0 bg-gradient-to-b from-rose-950/20 via-transparent to-black/40 pointer-events-none z-10"></div>
              <img 
@@ -170,10 +220,9 @@ export default function LoginModule() {
           </div>
 
           <h1 className="text-4xl font-black tracking-tighter text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]">
-            COACH VITAL
+            VTR
           </h1>
 
-          {/* Mensaje Táctico Debajo del Título */}
           <div className="mt-2 space-y-0.5">
             <p className="text-[10px] font-black uppercase tracking-[0.25em] text-rose-500">
               Bienvenido
@@ -184,7 +233,6 @@ export default function LoginModule() {
           </div>
         </div>
 
-        {/* Alertas del Sistema HUD */}
         {error && (
           <div className="mb-5 bg-rose-500/10 border border-rose-500/50 rounded-lg p-3 flex items-start gap-2 animate-pulse">
             <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
@@ -192,7 +240,6 @@ export default function LoginModule() {
           </div>
         )}
 
-        {/* Inputs Section */}
         <form onSubmit={handleLogin} className="space-y-5">
           <div className="flex flex-col">
             <label className="text-[9px] text-zinc-400 font-black uppercase tracking-[0.2em] mb-1.5 ml-1">
@@ -200,7 +247,7 @@ export default function LoginModule() {
             </label>
             <input 
               type="email" 
-              placeholder="ID de Usuario / Email"
+              placeholder="correo@ejemplo.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={loading}
@@ -232,7 +279,6 @@ export default function LoginModule() {
             </div>
           </div>
 
-          {/* Sistema de Recordar Sesión */}
           <div 
             className="flex items-center gap-2 cursor-pointer w-max group"
             onClick={() => !loading && setRememberMe(!rememberMe)}
@@ -247,7 +293,6 @@ export default function LoginModule() {
             </span>
           </div>
 
-          {/* Botón de Iniciar Sesión */}
           <button 
             type="submit" 
             disabled={loading}
@@ -263,7 +308,6 @@ export default function LoginModule() {
           </button>
         </form>
 
-        {/* Register Text */}
         <div className="mt-8 text-center">
           <button 
             type="button"
@@ -276,7 +320,6 @@ export default function LoginModule() {
         </div>
       </div>
 
-      {/* Footer / Legal */}
       <div className="absolute bottom-8 flex flex-col items-center gap-3 z-10 opacity-70 hover:opacity-100 transition-opacity">
         <ShieldAlert className="w-3 h-3 text-zinc-600" />
         <div className="flex gap-4 text-[8px] text-zinc-500 font-black uppercase tracking-[0.2em]">

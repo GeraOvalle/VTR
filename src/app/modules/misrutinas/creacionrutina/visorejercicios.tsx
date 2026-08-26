@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Search, Plus, Loader2, Dumbbell, Filter, ChevronDown, Check, Eye, Star, Upload, Image as ImageIcon, X } from "lucide-react";
+import { Search, Plus, Loader2, Dumbbell, Filter, ChevronDown, Check, Eye, Star, Upload, Image as ImageIcon, X, Wrench, XCircle } from "lucide-react";
 import { db, auth } from "../../../lib/firebase";
-import { collection, getDocs, doc, setDoc, addDoc, getDoc } from "firebase/firestore";
+import { collection, getDocs, doc, setDoc, addDoc, getDoc, writeBatch } from "firebase/firestore";
 import DetallesEjercicio from "./detallesejercicio";
 
 interface VisorEjerciciosProps {
@@ -16,28 +16,38 @@ const MUSCULOS_FILTRO = [
   "Tricep", "Antebrazo", "Gluteo", "Cuadriceps", "Femoral", "Gemelos"
 ];
 
+// Mapa ampliado y optimizado
 const MAPA_SINONIMOS: { [key: string]: string[] } = {
-  "pecho": ["pecho", "chest", "pectoral", "pectorals", "upper chest", "lower chest"],
-  "abdomen": ["abdomen", "abdominal", "abs", "core", "waist", "cintura", "obliques", "oblicuos"],
+  "pecho": ["pecho", "chest", "pectoral", "pectorales"],
+  "abdomen": ["abdomen", "abdominal", "abs", "core", "cintura", "oblicuo"],
   "cuello": ["cuello", "neck"],
   "trapecio": ["trapecio", "traps", "trapezius"],
-  "hombro": ["hombro", "shoulders", "delts", "deltoids", "anterior delt", "lateral delt", "posterior delt"],
-  "espalda superior": ["upper back", "espalda superior", "rhomboids", "romboides", "upper_back"],
-  "dorsales": ["lats", "latissimus", "dorsales"],
-  "espalda baja": ["lower back", "espalda baja", "spine", "erectors"],
-  "bicep": ["bicep", "biceps"],
-  "tricep": ["tricep", "triceps"],
-  "antebrazo": ["forearm", "forearms", "antebrazo", "antebrazos", "grip"],
-  "gluteo": ["glutes", "glute", "glúteos", "gluteus", "hips"],
-  "cuadriceps": ["quads", "quadriceps", "cuádriceps", "legs", "piernas"],
-  "femoral": ["hamstrings", "femoral", "leg curls", "posterior"],
-  "gemelos": ["calves", "gemelos", "calf", "gastronemius", "soleus"]
+  "hombro": ["hombro", "shoulder", "deltoid", "deltoide", "delt"],
+  "espalda superior": ["upper back", "espalda superior", "rhomboid", "romboide"],
+  "dorsales": ["lat", "latissimus", "dorsal", "espalda"],
+  "espalda baja": ["lower back", "espalda baja", "lumbar", "erector"],
+  "bicep": ["bicep", "brazo", "arm"],
+  "tricep": ["tricep", "brazo", "arm"],
+  "antebrazo": ["forearm", "antebrazo", "agarre", "grip"],
+  "gluteo": ["glute", "gluteo", "cadera", "hip"],
+  "cuadriceps": ["quad", "cuadricep", "pierna", "leg"],
+  "femoral": ["hamstring", "femoral", "isquio", "pierna", "leg", "posterior"],
+  "gemelos": ["calf", "calves", "gemelo", "pantorrilla", "soleo"]
+};
+
+const normalizeText = (text: string | null | undefined) => {
+  if (!text) return "";
+  return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 };
 
 export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps) {
   const [allExercises, setAllExercises] = useState<any[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [rol, setRol] = useState<string>("clasico");
+  const [curandoGifs, setCurandoGifs] = useState(false);
+  
+  const [failedImages, setFailedImages] = useState<{ [key: string]: boolean }>({});
   
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedMuscle, setSelectedMuscle] = useState("Todos");
@@ -50,9 +60,7 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
   const [filteredExercises, setFilteredExercises] = useState<any[]>([]);
   const [displayedExercises, setDisplayedExercises] = useState<any[]>([]);
   
-  // 🔥 SOLUCIÓN AL BUG DEL SCROLL: Cargar 40 al inicio para asegurar que se llene la pantalla
   const [itemsToShow, setItemsToShow] = useState(40); 
-  
   const loaderRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -65,40 +73,41 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // 1. CARGA INICIAL CON CACHÉ (Solución a la lentitud)
+  // 1. CARGA INICIAL
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
       if (user) {
         try {
-          const cacheKey = `cv_cache_ejercicios_${user.uid}`;
+          const userDocRef = doc(db, "users", user.uid);
+          const userSnap = await getDoc(userDocRef);
+          const userRol = userSnap.exists() ? userSnap.data().rol || "clasico" : "clasico";
+          setRol(userRol);
+          const favs = userSnap.exists() ? userSnap.data().favoritos || [] : [];
+
+          // 🔴 CAMBIO DE LLAVE A V7 PARA LIMPIAR CACHÉ DE LA PRUEBA DE FUEGO
+          const cacheKey = `cv_cache_ejercicios_v7_${user.uid}`;
           const cachedData = sessionStorage.getItem(cacheKey);
 
-          // Si hay caché, la usamos de inmediato
           if (cachedData) {
-            const { lista, favs } = JSON.parse(cachedData);
+            const { lista, favsCache } = JSON.parse(cachedData);
             setAllExercises(lista);
-            setFavoriteIds(favs);
+            setFavoriteIds(favsCache);
             setLoading(false);
             return;
           }
 
-          // Si no hay caché, descargamos todo
+          // Traemos todos los ejercicios globales y los personales
           const globalSnap = await getDocs(collection(db, "ejercicios"));
-          const globalList = globalSnap.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+          const globalList = globalSnap.docs.map(d => ({ ...d.data(), id: d.id }));
 
           const customSnap = await getDocs(collection(db, "users", user.uid, "mis_ejercicios"));
-          const customList = customSnap.docs.map(doc => ({ ...doc.data(), id: doc.id, isCustom: true }));
-
-          const userRef = doc(db, "users", user.uid);
-          const userSnap = await getDoc(userRef);
-          const favs = userSnap.exists() ? userSnap.data().favoritos || [] : [];
+          const customList = customSnap.docs.map(d => ({ ...d.data(), id: d.id, isCustom: true }));
 
           const listaCompleta = [...customList, ...globalList];
           setAllExercises(listaCompleta);
           setFavoriteIds(favs);
 
-          // Guardamos en caché
-          sessionStorage.setItem(cacheKey, JSON.stringify({ lista: listaCompleta, favs }));
+          sessionStorage.setItem(cacheKey, JSON.stringify({ lista: listaCompleta, favsCache: favs }));
 
         } catch (error) {
           console.error("Error cargando base de datos:", error);
@@ -113,7 +122,39 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
     return () => unsubscribe();
   }, []);
 
-  // 2. TOGGLE FAVORITOS (Actualiza caché al instante)
+  const curarGifsGlobales = async () => {
+    if (rol !== "admin") return;
+    setCurandoGifs(true);
+    try {
+      const querySnap = await getDocs(collection(db, "ejercicios"));
+      const batch = writeBatch(db);
+      let contador = 0;
+
+      querySnap.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (data.id && data.gifUrl) {
+          const ref = doc(db, "ejercicios", data.id);
+          batch.update(ref, { gifUrl: data.gifUrl });
+          contador++;
+        }
+      });
+
+      if (contador > 0) {
+        await batch.commit();
+        sessionStorage.clear();
+        alert(`¡Sincronización completa! Se han asegurado ${contador} referencias en Firestore.`);
+        window.location.reload();
+      } else {
+        alert("No hay registros pendientes.");
+      }
+    } catch (error) {
+      console.error("Error al curar GIFs:", error);
+      alert("Error al sincronizar.");
+    } finally {
+      setCurandoGifs(false);
+    }
+  };
+
   const toggleFavorite = async (ejId: string) => {
     const user = auth.currentUser;
     if (!user) return;
@@ -123,9 +164,8 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
 
     setFavoriteIds(newFavs); 
     
-    // Actualizamos la caché
-    const cacheKey = `cv_cache_ejercicios_${user.uid}`;
-    sessionStorage.setItem(cacheKey, JSON.stringify({ lista: allExercises, favs: newFavs }));
+    const cacheKey = `cv_cache_ejercicios_v7_${user.uid}`;
+    sessionStorage.setItem(cacheKey, JSON.stringify({ lista: allExercises, favsCache: newFavs }));
 
     try {
       await setDoc(doc(db, "users", user.uid), { favoritos: newFavs }, { merge: true });
@@ -134,55 +174,66 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
     }
   };
 
-  // 3. MOTOR DE BÚSQUEDA Y FILTRO
+  // MOTOR DE BÚSQUEDA INTELIGENTE
   useEffect(() => {
     let result = allExercises;
 
+    // 1. Aplicar Filtro de Dropdown
     if (selectedMuscle === "Favoritos") {
       result = result.filter(ej => favoriteIds.includes(ej.id));
     } else if (selectedMuscle === "Propios") {
       result = result.filter(ej => ej.isCustom);
     } else if (selectedMuscle !== "Todos") {
-      const claveFiltro = selectedMuscle.toLowerCase();
-      const sinónimosPermitidos = MAPA_SINONIMOS[claveFiltro] || [claveFiltro];
+      const claveFiltro = normalizeText(selectedMuscle);
+      const sinónimosPermitidos = (MAPA_SINONIMOS[claveFiltro] || []).map(normalizeText);
+      sinónimosPermitidos.push(claveFiltro);
 
       result = result.filter(ej => {
-        const principal = (ej.musculoEs || ej.musculoObjetivo || "").toLowerCase();
-        const parte = (ej.parteCuerpoEs || ej.parteCuerpo || "").toLowerCase();
-        const secundarios = (ej.musculosSecundariosEs || []).map((m: string) => m.toLowerCase());
-        const secundariosIngles = (ej.musculosSecundarios || []).map((m: string) => m.toLowerCase());
+        const camposMusculares = [
+          normalizeText(ej.musculoEs), normalizeText(ej.musculoObjetivo),
+          normalizeText(ej.parteCuerpoEs), normalizeText(ej.parteCuerpo),
+          ...(ej.musculosSecundariosEs || []).map(normalizeText),
+          ...(ej.musculosSecundarios || []).map(normalizeText)
+        ];
 
         return sinónimosPermitidos.some(syn => 
-          principal.includes(syn) || 
-          parte.includes(syn) || 
-          secundarios.some((sec: string | string[]) => sec.includes(syn)) ||
-          secundariosIngles.some((sec: string | string[]) => sec.includes(syn))
+          camposMusculares.some(campo => campo.includes(syn))
         );
       });
     }
 
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
+    // 2. Aplicar Búsqueda por Texto
+    if (searchTerm.trim() !== "") {
+      const terms = normalizeText(searchTerm).split(" ").filter(Boolean);
+      
       result = result.filter(ej => {
-        const nombre = (ej.nombreEs || ej.nombre || "").toLowerCase();
-        const principal = (ej.musculoEs || ej.musculoObjetivo || "").toLowerCase();
-        const parte = (ej.parteCuerpoEs || ej.parteCuerpo || "").toLowerCase();
-        const secundarios = (ej.musculosSecundariosEs || []).join(" ").toLowerCase();
+        const searchableText = normalizeText([
+          ej.nombreEs, ej.nombre,
+          ej.musculoEs, ej.musculoObjetivo,
+          ej.parteCuerpoEs, ej.parteCuerpo,
+          ej.equipoEs, ej.equipo,
+          ...(ej.musculosSecundariosEs || []),
+          ...(ej.musculosSecundarios || [])
+        ].join(" "));
 
-        return (
-          nombre.includes(term) || 
-          principal.includes(term) || 
-          parte.includes(term) || 
-          secundarios.includes(term)
-        );
+        return terms.every(term => searchableText.includes(term));
       });
     }
+
+    // 3. ORDENAMIENTO: PONER LOS QUE TIENEN GIF PRIMERO
+    result.sort((a, b) => {
+      const aHasGif = !!(a.gifUrl && a.gifUrl.trim() !== "");
+      const bHasGif = !!(b.gifUrl && b.gifUrl.trim() !== "");
+      
+      if (aHasGif && !bHasGif) return -1; 
+      if (!aHasGif && bHasGif) return 1;  
+      return 0; 
+    });
 
     setFilteredExercises(result);
-    setItemsToShow(40); // Reset a 40 para no romper el scroll
+    setItemsToShow(40); 
   }, [searchTerm, selectedMuscle, allExercises, favoriteIds]);
 
-  // 4. PAGINACIÓN Y SCROLL
   useEffect(() => {
     setDisplayedExercises(filteredExercises.slice(0, itemsToShow));
   }, [filteredExercises, itemsToShow]);
@@ -191,10 +242,10 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && itemsToShow < filteredExercises.length) {
-          setItemsToShow((prev) => Math.min(prev + 20, filteredExercises.length)); // Agrega de a 20
+          setItemsToShow((prev) => Math.min(prev + 40, filteredExercises.length));
         }
       },
-      { root: null, rootMargin: "100px", threshold: 0.1 } // Margen aumentado para cargar antes
+      { root: null, rootMargin: "200px", threshold: 0.1 }
     );
 
     if (loaderRef.current) observer.observe(loaderRef.current);
@@ -214,24 +265,45 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
             </h2>
           </div>
           
-          {!loading && (
-            <span className="bg-rose-500/10 border border-rose-500/20 text-rose-400 px-2.5 py-1 rounded text-[9px] font-black tracking-widest">
-              {filteredExercises.length} / {allExercises.length} TOTALES
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {rol === "admin" && (
+              <button 
+                onClick={curarGifsGlobales}
+                disabled={curandoGifs}
+                className="bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 px-2.5 py-1 rounded text-[9px] font-black uppercase tracking-widest hover:bg-cyan-500/20 transition-all flex items-center gap-1 disabled:opacity-50"
+              >
+                {curandoGifs ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wrench className="w-3 h-3" />}
+                Curar
+              </button>
+            )}
+
+            {!loading && (
+              <span className="bg-rose-500/10 border border-rose-500/20 text-rose-400 px-2.5 py-1 rounded text-[9px] font-black tracking-widest">
+                {filteredExercises.length} / {allExercises.length}
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* CONTROLES */}
+        {/* CONTROLES INTELIGENTES */}
         <div className="flex gap-2 mb-4 shrink-0 relative" ref={filterRef}>
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+          <div className="relative flex-1 group">
+            <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 transition-colors ${searchTerm ? 'text-rose-500' : 'text-zinc-500 group-focus-within:text-zinc-400'}`} />
             <input 
               type="text" 
-              placeholder="Buscar por ejercicio, músculo..."
+              placeholder="Ej: Press pecho inclinado..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-lg py-2.5 pl-9 pr-4 text-xs text-white focus:outline-none focus:border-rose-500 transition-all placeholder:text-zinc-600"
+              className="w-full bg-white/5 border border-white/10 rounded-lg py-2.5 pl-9 pr-10 text-xs text-white focus:outline-none focus:border-rose-500 focus:bg-white/10 transition-all placeholder:text-zinc-600 font-medium tracking-wide"
             />
+            {searchTerm && (
+              <button 
+                onClick={() => setSearchTerm("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-rose-500 transition-colors"
+              >
+                <XCircle className="w-4 h-4 fill-zinc-900" />
+              </button>
+            )}
           </div>
 
           <button 
@@ -253,16 +325,15 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
 
           <button 
             onClick={() => setShowCrearModal(true)}
-            className="flex items-center justify-center w-10 sm:w-auto sm:px-3 bg-zinc-800 text-white rounded-lg hover:bg-rose-500 transition-colors shadow-lg"
+            className="flex items-center justify-center w-10 sm:w-auto sm:px-3 bg-zinc-800 border border-zinc-700 text-white rounded-lg hover:bg-rose-500 hover:border-rose-500 transition-all shadow-lg active:scale-95"
             title="Crear Ejercicio Propio"
           >
             <Plus className="w-4 h-4" />
             <span className="text-[10px] font-black uppercase tracking-widest hidden sm:block ml-1">Nuevo</span>
           </button>
 
-          {/* DROPDOWN FILTRO */}
           {showFilterDropdown && (
-            <div className="absolute top-full right-0 mt-2 w-48 bg-zinc-900 border border-zinc-700 rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
+            <div className="absolute top-full right-0 mt-2 w-48 bg-zinc-950 border border-zinc-700 rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
               <div className="max-h-64 overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-zinc-800 hover:[&::-webkit-scrollbar-thumb]:bg-rose-500/50">
                 {MUSCULOS_FILTRO.map(musculo => {
                   const isSpecial = musculo === "Favoritos" || musculo === "Propios";
@@ -273,8 +344,8 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
                         setSelectedMuscle(musculo);
                         setShowFilterDropdown(false);
                       }}
-                      className={`w-full text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest flex items-center justify-between transition-colors ${
-                        isSpecial ? "bg-white/5 hover:bg-white/10 border-b border-zinc-800" : "hover:bg-white/5"
+                      className={`w-full text-left px-4 py-3 text-[10px] font-bold uppercase tracking-widest flex items-center justify-between transition-colors ${
+                        isSpecial ? "bg-zinc-900 hover:bg-zinc-800 border-b border-zinc-800" : "hover:bg-zinc-800"
                       }`}
                     >
                       <span className={
@@ -295,7 +366,7 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
           )}
         </div>
 
-        {/* LISTA DE EJERCICIOS (DISEÑO MOSAICO / GRID) */}
+        {/* LISTA DE EJERCICIOS */}
         <div className="flex-1 overflow-y-auto pr-1 sm:pr-2 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-800 hover:[&::-webkit-scrollbar-thumb]:bg-rose-500/50 [&::-webkit-scrollbar-thumb]:rounded-full">
           {loading ? (
             <div className="flex flex-col items-center justify-center h-full opacity-50">
@@ -303,25 +374,54 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
               <span className="text-[9px] font-bold uppercase tracking-widest text-rose-500">Cargando base de datos...</span>
             </div>
           ) : displayedExercises.length === 0 ? (
-            <div className="text-center text-zinc-500 text-[10px] uppercase font-bold tracking-widest mt-10">
-              Ningún objetivo encontrado
+            
+            /* ESTADO VACÍO */
+            <div className="flex flex-col items-center justify-center h-full opacity-80 text-center px-4 animate-in fade-in zoom-in-95 duration-300">
+              <div className="bg-zinc-900/80 p-5 rounded-full mb-4 border border-zinc-800">
+                <Search className="w-8 h-8 text-zinc-600" />
+              </div>
+              <p className="text-sm font-black text-white uppercase tracking-widest mb-1">
+                Sin Resultados
+              </p>
+              <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-6 max-w-[250px] leading-relaxed">
+                No encontramos ejercicios que coincidan con los filtros actuales.
+              </p>
+              <button
+                onClick={() => { setSearchTerm(""); setSelectedMuscle("Todos"); }}
+                className="bg-rose-500/10 text-rose-400 border border-rose-500/30 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-500 hover:text-white transition-all active:scale-95 shadow-[0_0_15px_rgba(244,63,94,0.15)]"
+              >
+                Limpiar Filtros
+              </button>
             </div>
+
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 lg:gap-4 pb-4">
               {displayedExercises.map((ej) => {
                 const isFav = favoriteIds.includes(ej.id);
+                const imageKey = ej.id || ej.nombre;
+                const hasFailed = failedImages[imageKey];
+
                 return (
                   <div key={ej.id} className="bg-zinc-900/50 border border-white/5 rounded-xl overflow-hidden group hover:border-rose-500/50 hover:bg-rose-500/10 transition-all flex flex-col relative shadow-md">
                     
-                    {/* Contenedor Imagen */}
-                    <div className="relative w-full aspect-square bg-black/40 border-b border-zinc-800 flex items-center justify-center">
-                      {ej.gifUrl ? (
-                        <img src={ej.gifUrl} alt={ej.nombreEs} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                    {/* CONTENEDOR IMAGEN */}
+                    <div className="relative w-full aspect-square bg-black/40 border-b border-zinc-800 flex items-center justify-center overflow-hidden">
+                      
+                      {ej.gifUrl && !hasFailed ? (
+                        <img 
+                          src={ej.gifUrl} 
+                          alt={ej.nombreEs || ej.nombre} 
+                          className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" 
+                          onError={() => setFailedImages(prev => ({ ...prev, [ej.id || ej.nombre]: true }))}
+                        />
                       ) : (
-                        <Dumbbell className="w-10 h-10 text-zinc-700" />
+                        <div className="flex flex-col items-center justify-center text-center p-2 opacity-70">
+                          <Dumbbell className="w-8 h-8 text-zinc-700 mb-1.5" />
+                          <span className="text-[8px] tracking-widest font-black text-zinc-500">SIN VISTA PREVIA</span>
+                          <span className="text-[6px] tracking-widest font-bold text-zinc-600 mt-1 uppercase">Estamos trabajando<br/>en ello</span>
+                        </div>
                       )}
                       
-                      {/* Badges Flotantes */}
                       {ej.isCustom && (
                         <div className="absolute top-2 left-2 bg-cyan-500/90 text-white text-[8px] font-black uppercase px-1.5 py-0.5 rounded backdrop-blur-md shadow-sm">Propio</div>
                       )}
@@ -350,7 +450,7 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
                         </button>
                         <button 
                           onClick={() => onAddExercise(ej)} 
-                          className="bg-rose-500 hover:bg-rose-400 text-white p-1.5 rounded-lg transition-all shadow-[0_0_15px_rgba(244,63,94,0.3)] hover:scale-105"
+                          className="bg-rose-500 hover:bg-rose-400 text-white p-1.5 rounded-lg transition-all shadow-[0_0_15px_rgba(244,63,94,0.3)] hover:scale-105 active:scale-95"
                         >
                           <Plus className="w-4 h-4" />
                         </button>
@@ -363,7 +463,6 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
             </div>
           )}
           
-          {/* Vigilante para cargar más en el Scroll */}
           {displayedExercises.length > 0 && displayedExercises.length < filteredExercises.length && (
             <div ref={loaderRef} className="py-6 flex justify-center w-full">
               <Loader2 className="w-5 h-5 text-zinc-600 animate-spin" />
@@ -388,10 +487,9 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
             setAllExercises(updatedList);
             setShowCrearModal(false);
             
-            // Actualizar caché automáticamente tras crear
             const user = auth.currentUser;
             if (user) {
-               sessionStorage.setItem(`cv_cache_ejercicios_${user.uid}`, JSON.stringify({ lista: updatedList, favs: favoriteIds }));
+               sessionStorage.setItem(`cv_cache_ejercicios_v7_${user.uid}`, JSON.stringify({ lista: updatedList, favsCache: favoriteIds }));
             }
           }}
         />
@@ -399,10 +497,6 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
     </>
   );
 }
-
-// ----------------------------------------------------------------------
-// SUB-COMPONENTE: MODAL CREADOR DE EJERCICIOS PROPIOS (COMPRESIÓN CANVAS)
-// ----------------------------------------------------------------------
 
 function CrearEjercicioModal({ onClose, onSave }: { onClose: () => void, onSave: (ej: any) => void }) {
   const [form, setForm] = useState({
@@ -452,7 +546,7 @@ function CrearEjercicioModal({ onClose, onSave }: { onClose: () => void, onSave:
     try {
       const nuevoEjercicio = {
         nombreEs: form.nombreEs.trim(),
-        nombre: form.nombreEs.trim(), // Replicar para compatibilidad
+        nombre: form.nombreEs.trim(),
         musculoEs: form.musculoEs,
         musculoObjetivo: form.musculoEs,
         musculosSecundariosEs: form.musculosSecundariosEs.split(",").map(s => s.trim()).filter(Boolean),
@@ -460,6 +554,7 @@ function CrearEjercicioModal({ onClose, onSave }: { onClose: () => void, onSave:
         instruccionesEs: form.instruccionesEs.split("\n").filter(Boolean),
         gifUrl: form.gifUrl,
         isCustom: true,
+        estadoRevision: "pendiente", // 🔴 MARCA PARA EL ADMIN
         creadorUid: user.uid,
         fechaCreacion: new Date().toISOString()
       };
