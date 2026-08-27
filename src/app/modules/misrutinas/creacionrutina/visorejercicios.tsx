@@ -84,7 +84,6 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
           setRol(userRol);
           const favs = userSnap.exists() ? userSnap.data().favoritos || [] : [];
 
-          // 🔴 CAMBIO DE LLAVE A V7 PARA LIMPIAR CACHÉ DE LA PRUEBA DE FUEGO
           const cacheKey = `cv_cache_ejercicios_v7_${user.uid}`;
           const cachedData = sessionStorage.getItem(cacheKey);
 
@@ -238,29 +237,34 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
     setDisplayedExercises(filteredExercises.slice(0, itemsToShow));
   }, [filteredExercises, itemsToShow]);
 
+  // CORRECCIÓN DEL SCROLL INFINITO
   useEffect(() => {
+    const currentLoader = loaderRef.current;
+    if (!currentLoader) return;
+
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && itemsToShow < filteredExercises.length) {
-          setItemsToShow((prev) => Math.min(prev + 40, filteredExercises.length));
+        if (entries[0].isIntersecting) {
+          setItemsToShow((prev) => prev + 40);
         }
       },
-      { root: null, rootMargin: "200px", threshold: 0.1 }
+      { root: null, rootMargin: "300px", threshold: 0.1 }
     );
 
-    if (loaderRef.current) observer.observe(loaderRef.current);
-    return () => { if (loaderRef.current) observer.unobserve(loaderRef.current); };
-  }, [itemsToShow, filteredExercises.length]);
+    observer.observe(currentLoader);
+    
+    return () => observer.disconnect();
+  }, [filteredExercises]); // Solo se recrea si cambia la lista filtrada, no la cantidad mostrada
 
   return (
     <>
-      <div className="bg-zinc-950/80 backdrop-blur-md border border-zinc-800 rounded-2xl p-4 sm:p-5 shadow-inner flex flex-col h-[75vh]">
+      <div className="bg-zinc-950/80 backdrop-blur-md border border-zinc-800 rounded-2xl p-3 sm:p-5 shadow-inner flex flex-col h-[75vh]">
         
         {/* HEADER */}
-        <div className="flex items-center justify-between mb-5 border-b border-zinc-800 pb-3 shrink-0">
+        <div className="flex items-center justify-between mb-4 border-b border-zinc-800 pb-3 shrink-0">
           <div className="flex items-center gap-2">
             <Dumbbell className="w-5 h-5 text-rose-500" />
-            <h2 className="text-xs font-black uppercase tracking-widest text-white">
+            <h2 className="text-[10px] md:text-xs font-black uppercase tracking-widest text-white">
               Lista de Ejercicios
             </h2>
           </div>
@@ -291,15 +295,15 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
             <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 transition-colors ${searchTerm ? 'text-rose-500' : 'text-zinc-500 group-focus-within:text-zinc-400'}`} />
             <input 
               type="text" 
-              placeholder="Ej: Press pecho inclinado..."
+              placeholder="Buscar ejercicio..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-lg py-2.5 pl-9 pr-10 text-xs text-white focus:outline-none focus:border-rose-500 focus:bg-white/10 transition-all placeholder:text-zinc-600 font-medium tracking-wide"
+              className="w-full bg-white/5 border border-white/10 rounded-lg py-2.5 pl-9 pr-8 md:pr-10 text-[10px] md:text-xs text-white focus:outline-none focus:border-rose-500 focus:bg-white/10 transition-all placeholder:text-zinc-600 font-medium tracking-wide"
             />
             {searchTerm && (
               <button 
                 onClick={() => setSearchTerm("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-rose-500 transition-colors"
+                className="absolute right-2 md:right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-rose-500 transition-colors"
               >
                 <XCircle className="w-4 h-4 fill-zinc-900" />
               </button>
@@ -308,7 +312,7 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
 
           <button 
             onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-            className={`flex items-center gap-2 px-3 rounded-lg border transition-all ${
+            className={`flex items-center gap-1.5 md:gap-2 px-2.5 md:px-3 rounded-lg border transition-all ${
               showFilterDropdown || (selectedMuscle !== "Todos" && selectedMuscle !== "Favoritos" && selectedMuscle !== "Propios")
                 ? "bg-rose-500/10 border-rose-500 text-rose-400" 
                 : selectedMuscle === "Favoritos" ? "bg-amber-500/10 border-amber-500 text-amber-400"
@@ -317,7 +321,7 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
             }`}
           >
             {selectedMuscle === "Favoritos" ? <Star className="w-4 h-4 fill-amber-400" /> : <Filter className="w-4 h-4" />}
-            <span className="text-[10px] font-black uppercase tracking-widest hidden sm:block">
+            <span className="text-[9px] md:text-[10px] font-black uppercase tracking-widest hidden sm:block">
               {selectedMuscle === "Todos" ? "Filtro" : selectedMuscle}
             </span>
             <ChevronDown className="w-3 h-3" />
@@ -334,7 +338,7 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
 
           {showFilterDropdown && (
             <div className="absolute top-full right-0 mt-2 w-48 bg-zinc-950 border border-zinc-700 rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
-              <div className="max-h-64 overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-zinc-800 hover:[&::-webkit-scrollbar-thumb]:bg-rose-500/50">
+              <div className="w-full">
                 {MUSCULOS_FILTRO.map(musculo => {
                   const isSpecial = musculo === "Favoritos" || musculo === "Propios";
                   return (
@@ -344,14 +348,15 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
                         setSelectedMuscle(musculo);
                         setShowFilterDropdown(false);
                       }}
-                      className={`w-full text-left px-4 py-3 text-[10px] font-bold uppercase tracking-widest flex items-center justify-between transition-colors ${
+                      // Redujimos py-3 a py-1.5 y text-[10px] a text-[9px] para hacerlo más delgado
+                      className={`w-full text-left px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest flex items-center justify-between transition-colors ${
                         isSpecial ? "bg-zinc-900 hover:bg-zinc-800 border-b border-zinc-800" : "hover:bg-zinc-800"
                       }`}
                     >
                       <span className={
-                        selectedMuscle === musculo && musculo === "Favoritos" ? "text-amber-400 flex gap-2" :
-                        selectedMuscle === musculo && musculo === "Propios" ? "text-cyan-400 flex gap-2" :
-                        selectedMuscle === musculo ? "text-rose-400" : "text-zinc-400 flex gap-2"
+                        selectedMuscle === musculo && musculo === "Favoritos" ? "text-amber-400 flex gap-1.5 items-center" :
+                        selectedMuscle === musculo && musculo === "Propios" ? "text-cyan-400 flex gap-1.5 items-center" :
+                        selectedMuscle === musculo ? "text-rose-400" : "text-zinc-400 flex gap-1.5 items-center"
                       }>
                         {musculo === "Favoritos" && <Star className="w-3 h-3" />}
                         {musculo === "Propios" && <Upload className="w-3 h-3" />}
@@ -366,7 +371,7 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
           )}
         </div>
 
-        {/* LISTA DE EJERCICIOS */}
+        {/* LISTA DE EJERCICIOS (REJILLA DE 4 COLUMNAS EN MÓVIL) */}
         <div className="flex-1 overflow-y-auto pr-1 sm:pr-2 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-800 hover:[&::-webkit-scrollbar-thumb]:bg-rose-500/50 [&::-webkit-scrollbar-thumb]:rounded-full">
           {loading ? (
             <div className="flex flex-col items-center justify-center h-full opacity-50">
@@ -395,7 +400,7 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
             </div>
 
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 lg:gap-4 pb-4">
+            <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-2 pb-4">
               {displayedExercises.map((ej) => {
                 const isFav = favoriteIds.includes(ej.id);
                 const imageKey = ej.id || ej.nombre;
@@ -404,7 +409,7 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
                 return (
                   <div key={ej.id} className="bg-zinc-900/50 border border-white/5 rounded-xl overflow-hidden group hover:border-rose-500/50 hover:bg-rose-500/10 transition-all flex flex-col relative shadow-md">
                     
-                    {/* CONTENEDOR IMAGEN */}
+                    {/* CONTENEDOR IMAGEN ULTRA COMPACTO */}
                     <div className="relative w-full aspect-square bg-black/40 border-b border-zinc-800 flex items-center justify-center overflow-hidden">
                       
                       {ej.gifUrl && !hasFailed ? (
@@ -415,44 +420,49 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
                           onError={() => setFailedImages(prev => ({ ...prev, [ej.id || ej.nombre]: true }))}
                         />
                       ) : (
-                        <div className="flex flex-col items-center justify-center text-center p-2 opacity-70">
-                          <Dumbbell className="w-8 h-8 text-zinc-700 mb-1.5" />
-                          <span className="text-[8px] tracking-widest font-black text-zinc-500">SIN VISTA PREVIA</span>
-                          <span className="text-[6px] tracking-widest font-bold text-zinc-600 mt-1 uppercase">Estamos trabajando<br/>en ello</span>
+                        <div className="flex flex-col items-center justify-center text-center p-1 opacity-70">
+                          <Dumbbell className="w-5 h-5 md:w-6 md:h-6 text-zinc-700 mb-1" />
+                          <span className="text-[5px] md:text-[6px] tracking-widest font-black text-zinc-500">SIN VISTA</span>
                         </div>
                       )}
                       
                       {ej.isCustom && (
-                        <div className="absolute top-2 left-2 bg-cyan-500/90 text-white text-[8px] font-black uppercase px-1.5 py-0.5 rounded backdrop-blur-md shadow-sm">Propio</div>
+                        <div className="absolute top-1 left-1 bg-cyan-500/90 text-white text-[5px] md:text-[6px] font-black uppercase px-1 py-0.5 rounded backdrop-blur-md shadow-sm">Propio</div>
                       )}
                       
                       <button 
                         onClick={() => toggleFavorite(ej.id)} 
-                        className={`absolute top-2 right-2 p-1.5 rounded-md backdrop-blur-md border transition-all ${isFav ? 'bg-amber-500/20 border-amber-500/50' : 'bg-black/60 border-white/10 hover:border-amber-500/50'}`}
+                        className={`absolute top-1 right-1 p-1 rounded-md backdrop-blur-md border transition-all ${isFav ? 'bg-amber-500/20 border-amber-500/50' : 'bg-black/60 border-white/10 hover:border-amber-500/50'}`}
                       >
-                        <Star className={`w-3.5 h-3.5 ${isFav ? 'fill-amber-400 text-amber-400' : 'text-zinc-400'}`} />
+                        <Star className={`w-2.5 h-2.5 md:w-3 md:h-3 ${isFav ? 'fill-amber-400 text-amber-400' : 'text-zinc-400'}`} />
                       </button>
                     </div>
                     
-                    {/* Info y Acciones */}
-                    <div className="p-3 flex flex-col flex-1 justify-between gap-3">
+                    {/* Info y Acciones Ultra Compactas */}
+                    <div className="p-1.5 md:p-2 flex flex-col flex-1 justify-between gap-1.5">
                       <div>
-                        <h3 className="text-[10px] sm:text-xs font-bold text-white capitalize line-clamp-2 leading-snug">{ej.nombreEs || ej.nombre}</h3>
-                        <p className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-rose-400 mt-1">{ej.musculoEs || ej.musculoObjetivo}</p>
+                        <h3 className="text-[7px] md:text-[9px] font-bold text-white capitalize line-clamp-2 leading-tight" title={ej.nombreEs || ej.nombre}>
+                          {ej.nombreEs || ej.nombre}
+                        </h3>
+                        <p className="text-[5px] md:text-[6.5px] font-black uppercase tracking-widest text-rose-400 mt-0.5 line-clamp-1">
+                          {ej.musculoEs || ej.musculoObjetivo}
+                        </p>
                       </div>
 
-                      <div className="flex items-center gap-2 mt-auto">
+                      <div className="flex items-center gap-1 mt-auto pt-1">
                         <button 
                           onClick={() => setEjercicioSeleccionadoDetalle(ej)} 
-                          className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-colors flex justify-center items-center gap-1"
+                          className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 py-1 rounded-md transition-colors flex justify-center items-center"
+                          title="Ver Detalle"
                         >
-                          <Eye className="w-3 h-3" /> Ver
+                          <Eye className="w-3 h-3" />
                         </button>
                         <button 
                           onClick={() => onAddExercise(ej)} 
-                          className="bg-rose-500 hover:bg-rose-400 text-white p-1.5 rounded-lg transition-all shadow-[0_0_15px_rgba(244,63,94,0.3)] hover:scale-105 active:scale-95"
+                          className="bg-rose-500 hover:bg-rose-400 text-white p-1 rounded-md transition-all shadow-[0_0_10px_rgba(244,63,94,0.3)] hover:scale-105 active:scale-95"
+                          title="Añadir a la Rutina"
                         >
-                          <Plus className="w-4 h-4" />
+                          <Plus className="w-3 h-3 md:w-3.5 md:h-3.5" />
                         </button>
                       </div>
                     </div>
@@ -463,6 +473,7 @@ export default function VisorEjercicios({ onAddExercise }: VisorEjerciciosProps)
             </div>
           )}
           
+          {/* EL LOADER DEL SCROLL INFINITO */}
           {displayedExercises.length > 0 && displayedExercises.length < filteredExercises.length && (
             <div ref={loaderRef} className="py-6 flex justify-center w-full">
               <Loader2 className="w-5 h-5 text-zinc-600 animate-spin" />
@@ -554,7 +565,7 @@ function CrearEjercicioModal({ onClose, onSave }: { onClose: () => void, onSave:
         instruccionesEs: form.instruccionesEs.split("\n").filter(Boolean),
         gifUrl: form.gifUrl,
         isCustom: true,
-        estadoRevision: "pendiente", // 🔴 MARCA PARA EL ADMIN
+        estadoRevision: "pendiente", 
         creadorUid: user.uid,
         fechaCreacion: new Date().toISOString()
       };

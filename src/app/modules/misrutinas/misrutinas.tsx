@@ -78,8 +78,8 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
   const [reportComment, setReportComment] = useState("");
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
 
-  // Lógica de Permisos según el Rol
-  const isPremium = ["tester", "entrenador", "admin"].includes(rol);
+  // Lógica de Permisos según el Rol (Sin Tester)
+  const isPremium = ["clasicoplus", "entrenador", "admin"].includes(rol);
   const MAX_RUTINAS = 4;
   const espaciosLibres = isPremium ? 0 : Math.max(0, MAX_RUTINAS - rutinas.length);
 
@@ -102,7 +102,7 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
         try {
           const userDocRef = doc(db, "users", user.uid);
           const userDocSnap = await getDoc(userDocRef);
-          if (userDocSnap.exists()) setRol(userDocSnap.data().rol || "clasico");
+          if (userDocSnap.exists()) setRol(userDocSnap.data().rol?.toLowerCase() || "clasico");
 
           const rutinasRef = collection(db, "users", user.uid, "rutinas");
           const q = query(rutinasRef, orderBy("creadoEn", "desc"));
@@ -133,8 +133,6 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
       
       if (savedSession) {
         const parsed = JSON.parse(savedSession);
-        
-        // Si hay una sesión guardada y ES OTRA RUTINA DISTINTA
         if (parsed.rutinaId !== rutina.id) {
           setAlertConfig({
             type: 'warning',
@@ -142,12 +140,10 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
             message: `Ya tienes la rutina "${parsed.rutinaNombre}" en progreso. No puedes iniciar otra hasta que la guardes o la descartes.`,
             confirmText: 'Entendido'
           });
-          return; // Bloquea la acción
+          return;
         }
       }
     }
-    
-    // Si no hay conflicto (o es la misma rutina para retomarla), la iniciamos normal
     iniciarEntrenamiento(rutina.id, rutina.nombre);
   };
 
@@ -251,7 +247,7 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center">
+      <div className="fixed inset-0 h-[100dvh] w-full bg-black flex flex-col items-center justify-center overflow-hidden">
         <Loader2 className="w-8 h-8 text-white animate-spin mb-4" />
         <p className="text-[10px] text-white font-bold uppercase tracking-[0.2em] animate-pulse">
           Accediendo a la Base de Datos...
@@ -264,40 +260,43 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
   if (showTranslation) return <EjerciciosTraduccionModule onBack={() => setShowTranslation(false)} />;
   if (showCreacion) return <CreacionRutinaModule onBack={() => setShowCreacion(false)} />;
   
-  const cardStyle = "bg-zinc-950/80 backdrop-blur-xl border border-white/20 rounded-2xl p-6 shadow-[0_0_30px_-10px_rgba(255,255,255,0.15)] ring-1 ring-white/10 hover:ring-white/30 hover:shadow-[0_0_40px_-10px_rgba(255,255,255,0.3)] transition-all flex flex-col group relative overflow-visible";
+  // ESTILOS COMPACTOS PARA TARJETAS EN FLEXBOX
+  const cardStyle = "bg-zinc-950/80 backdrop-blur-xl border border-white/20 rounded-2xl p-2 md:p-4 shadow-[0_0_30px_-10px_rgba(255,255,255,0.15)] ring-1 ring-white/10 hover:ring-white/30 transition-all flex flex-col relative overflow-visible w-[calc(33.33%-0.5rem)] md:w-40 lg:w-48 aspect-[3/4.5] md:aspect-auto md:min-h-[220px]";
 
   return (
     <>
-      <main className="min-h-screen bg-black text-white p-4 md:p-6 lg:p-8 relative overflow-x-hidden font-sans selection:bg-white/30 pb-32" onClick={() => setActiveSettingsMenu(null)}>
-        <div className="fixed inset-0 pointer-events-none z-0 opacity-40" style={{
+      <main className="fixed inset-0 h-[100dvh] w-full bg-black text-white flex flex-col p-4 md:p-6 relative overflow-hidden font-sans selection:bg-white/30" onClick={() => setActiveSettingsMenu(null)}>
+        
+        {/* Fondos */}
+        <div className="absolute inset-0 pointer-events-none z-0 opacity-40" style={{
           backgroundImage: `radial-gradient(circle at 50% 50%, rgba(38, 38, 38, 0.4) 0%, rgba(10, 10, 10, 0.8) 70%, #000000 100%), repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.03) 0px, rgba(255, 255, 255, 0.03) 2px, transparent 2px, transparent 8px), repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.03) 0px, rgba(255, 255, 255, 0.03) 2px, transparent 2px, transparent 8px)`,
           backgroundSize: '100% 100%, 16px 16px, 16px 16px'
         }}></div>
-        <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-transparent via-black/80 to-black pointer-events-none z-0"></div>
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-transparent via-black/80 to-black pointer-events-none z-0"></div>
 
-        <div className="w-full max-w-7xl mx-auto relative z-10 flex flex-col min-h-full">
+        <div className="w-full max-w-5xl mx-auto relative z-10 flex flex-col h-full overflow-hidden">
           
-          {/* Top Bar */}
-          <div className="flex justify-between items-center mb-10 border-b border-white/10 pb-4">
+          {/* Top Bar Fija */}
+          <div className="flex justify-between items-center mb-4 border-b border-white/10 pb-4 shrink-0">
             <button onClick={onBack} className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors group">
               <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-              <span className="text-[11px] font-bold uppercase tracking-widest">Volver al Panel</span>
+              <span className="hidden sm:inline text-[11px] font-bold uppercase tracking-widest">Volver</span>
             </button>
             
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 md:gap-4">
               {rol === "admin" && (
                 <>
                   <button 
                     onClick={() => setShowExtraction(true)}
                     className="hidden md:flex items-center gap-2 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest hover:bg-cyan-500/20 transition-all"
                   >
-                    <Database className="w-3 h-3" /> Actualizar DB
+                    <Database className="w-3 h-3" /> Base
                   </button>
                   <button 
                     onClick={() => setShowTranslation(true)}
                     className="hidden md:flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all"
                   >
-                    <Languages className="w-3 h-3" /> Traducir Ejercicios
+                    <Languages className="w-3 h-3" /> Traducir
                   </button>
                 </>
               )}
@@ -309,27 +308,16 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
             </div>
           </div>
 
-          {/* GRID DE RUTINAS */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-16">
-            
-            {/* 1. RUTINAS EXISTENTES */}
-            {(isPremium ? rutinas : rutinas.slice(0, MAX_RUTINAS)).map((rutina) => (
-              <div key={rutina.id} className={cardStyle}>
-                <div className="flex justify-between items-start mb-6">
+          {/* ZONA DE TARJETAS: Bloquea scroll en clásico, lo permite en premium */}
+          <div className={`w-full flex-1 flex flex-col ${isPremium ? 'overflow-y-auto custom-scrollbar' : 'overflow-hidden'} pb-4`}>
+            <div className="flex flex-wrap justify-center content-start gap-2 md:gap-4 w-full flex-1">
+              
+              {/* 1. RUTINAS EXISTENTES */}
+              {(isPremium ? rutinas : rutinas.slice(0, MAX_RUTINAS)).map((rutina) => (
+                <div key={rutina.id} className={cardStyle}>
                   
-                  <button 
-                    onClick={(e) => { 
-                      e.stopPropagation();
-                      setIconModalRoutineId(rutina.id); 
-                      setSelectedEmoji(rutina.icono || "💪"); 
-                    }}
-                    className="bg-white/10 w-14 h-14 rounded-xl border border-white/20 flex items-center justify-center text-2xl hover:scale-110 hover:bg-white/20 transition-all shadow-lg"
-                    title="Cambiar Icono"
-                  >
-                    {rutina.icono ? rutina.icono : <Dumbbell className="w-6 h-6 text-white" />}
-                  </button>
-
-                  <div className="relative" ref={activeSettingsMenu === rutina.id ? dropdownRef : null}>
+                  {/* Settings en esquina */}
+                  <div className="absolute top-2 right-2 z-20" ref={activeSettingsMenu === rutina.id ? dropdownRef : null}>
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
@@ -337,128 +325,128 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
                       }}
                       className="text-zinc-500 hover:text-white transition-colors p-1"
                     >
-                      <Settings2 className="w-5 h-5" />
+                      <Settings2 className="w-4 h-4 md:w-5 md:h-5" />
                     </button>
 
-                    {/* Menú de Opciones (Borrar) */}
                     {activeSettingsMenu === rutina.id && (
-                      <div className="absolute right-0 top-full mt-2 w-44 bg-zinc-900 border border-zinc-700 rounded-xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] z-50 overflow-hidden animate-in fade-in duration-100">
+                      <div className="absolute right-0 top-full mt-1 w-36 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in">
                         <button 
                           onClick={(e) => {
                             e.stopPropagation();
                             setActiveSettingsMenu(null);
                             handleDeleteRoutineClick(rutina);
                           }}
-                          className="w-full text-left px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-rose-500 hover:bg-rose-500/10 flex items-center gap-2 transition-colors"
+                          className="w-full text-left px-4 py-3 text-[9px] font-bold uppercase tracking-wider text-rose-500 hover:bg-rose-500/10 flex items-center gap-2 transition-colors"
                         >
-                          <Trash2 className="w-4 h-4" />
-                          Borrar Rutina
+                          <Trash2 className="w-3 h-3" /> Borrar
                         </button>
                       </div>
                     )}
                   </div>
 
-                </div>
-                
-                <h2 className="text-lg font-black tracking-wider text-white mb-2 uppercase line-clamp-1" title={rutina.nombre}>
-                  {rutina.nombre}
-                </h2>
-                
-                <div className="flex items-center gap-3 mb-8">
-                  <span className="bg-rose-500/10 border border-rose-500/30 px-2.5 py-1 rounded text-[9px] font-bold uppercase tracking-wider text-rose-400">
-                    {rutina.ejercicios?.length || 0} Ejercicios
-                  </span>
-                </div>
-
-                <div className="flex gap-2 mt-auto">
-                  {/* LLAMAMOS A NUESTRA FUNCIÓN INTERCEPTORA */}
-                  <button 
-                    onClick={() => handleIniciarClick(rutina)}
-                    className="flex-1 bg-white text-black font-black uppercase tracking-widest text-[10px] py-4 rounded-lg hover:shadow-[0_0_20px_rgba(255,255,255,0.4)] transition-all active:scale-[0.98] flex justify-center items-center gap-2"
-                  >
-                    <Play className="w-4 h-4 fill-black" />
-                    Iniciar
-                  </button>
-                  
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleEditRoutine(rutina);
-                    }}
-                    className="bg-zinc-800 text-zinc-300 font-black uppercase tracking-widest text-[10px] px-4 rounded-lg hover:bg-zinc-700 hover:text-white transition-all active:scale-[0.98] flex justify-center items-center"
-                    title="Editar rutina"
-                  >
-                    <Edit3 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
-
-            {/* 2. ESPACIOS LIBRES / CREACIÓN INFINITA */}
-            {isPremium ? (
-              <button 
-                onClick={handleCreateNew}
-                className="bg-black/50 backdrop-blur-sm border-2 border-dashed border-emerald-500/30 rounded-2xl p-6 hover:border-emerald-500/80 hover:bg-emerald-500/5 transition-all flex flex-col items-center justify-center min-h-[250px] group active:scale-[0.98]"
-              >
-                <div className="bg-emerald-500/10 p-4 rounded-full mb-4 group-hover:scale-110 group-hover:bg-emerald-500/20 transition-all">
-                  <Plus className="w-8 h-8 text-emerald-500" />
-                </div>
-                <span className="text-sm font-black uppercase tracking-[0.15em] text-emerald-500 mb-1">
-                  Crear Rutina
-                </span>
-                <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-500/50 flex items-center gap-1 mt-1">
-                  <Infinity className="w-3 h-3" /> Ilimitado
-                </span>
-              </button>
-            ) : (
-              Array.from({ length: espaciosLibres }).map((_, index) => (
-                <button 
-                  key={`free-slot-${index}`}
-                  onClick={handleCreateNew}
-                  className="bg-black/50 backdrop-blur-sm border-2 border-dashed border-white/30 rounded-2xl p-6 hover:border-white/80 hover:bg-white/5 transition-all flex flex-col items-center justify-center min-h-[250px] group active:scale-[0.98]"
-                >
-                  <div className="bg-white/10 p-4 rounded-full mb-4 group-hover:scale-110 group-hover:bg-white/20 transition-all">
-                    <Plus className="w-8 h-8 text-white" />
+                  {/* Emoji & Título */}
+                  <div className="flex-1 flex flex-col items-center justify-center mt-3 md:mt-4">
+                    <button 
+                      onClick={(e) => { 
+                        e.stopPropagation();
+                        setIconModalRoutineId(rutina.id); 
+                        setSelectedEmoji(rutina.icono || "💪"); 
+                      }}
+                      className="w-10 h-10 md:w-14 md:h-14 bg-white/10 rounded-xl border border-white/20 flex items-center justify-center text-xl md:text-2xl hover:scale-110 hover:bg-white/20 transition-all shadow-lg mb-2"
+                      title="Cambiar Icono"
+                    >
+                      {rutina.icono ? rutina.icono : <Dumbbell className="w-5 h-5 text-white" />}
+                    </button>
+                    
+                    <h2 className="text-[9px] md:text-sm font-black tracking-widest text-white uppercase text-center line-clamp-2 leading-tight px-1" title={rutina.nombre}>
+                      {rutina.nombre}
+                    </h2>
+                    
+                    <span className="text-[7px] md:text-[9px] text-rose-400 font-bold uppercase tracking-widest mt-1.5 border border-rose-500/30 bg-rose-500/10 px-1.5 py-0.5 rounded">
+                      {rutina.ejercicios?.length || 0} Ejers
+                    </span>
                   </div>
-                  <span className="text-sm font-black uppercase tracking-[0.15em] text-white mb-1">
-                    Crear Rutina
+
+                  {/* Botones de Acción Múltiple */}
+                  <div className="flex gap-1.5 w-full mt-3 shrink-0">
+                    <button 
+                      onClick={() => handleIniciarClick(rutina)}
+                      className="flex-1 bg-white text-black py-2.5 rounded-lg hover:shadow-[0_0_15px_rgba(255,255,255,0.4)] transition-all active:scale-95 flex justify-center items-center gap-1"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-black" />
+                    </button>
+                    
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); handleEditRoutine(rutina); }}
+                      className="flex-1 bg-zinc-800 text-white py-2.5 rounded-lg hover:bg-zinc-700 transition-all active:scale-95 flex justify-center items-center"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              {/* 2. ESPACIOS LIBRES / CREACIÓN INFINITA */}
+              {isPremium ? (
+                <button 
+                  onClick={handleCreateNew}
+                  className={`${cardStyle} border-dashed border-2 border-emerald-500/30 bg-black/50 hover:border-emerald-500/80 hover:bg-emerald-500/5 items-center justify-center active:scale-95 cursor-pointer`}
+                >
+                  <div className="bg-emerald-500/10 p-3 md:p-4 rounded-full mb-2 md:mb-4 group-hover:scale-110 transition-all">
+                    <Plus className="w-5 h-5 md:w-8 md:h-8 text-emerald-500" />
+                  </div>
+                  <span className="text-[8px] md:text-sm font-black uppercase tracking-[0.15em] text-emerald-500 text-center leading-tight mb-1">
+                    Crear<br/>Rutina
                   </span>
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mt-1">
-                    Espacio Disponible ({rutinas.length + index + 1}/{MAX_RUTINAS})
+                  <span className="text-[6px] md:text-[9px] font-bold uppercase tracking-widest text-emerald-500/50 flex items-center gap-1 mt-1">
+                    <Infinity className="w-2.5 h-2.5" /> Ilimitado
                   </span>
                 </button>
-              ))
-            )}
+              ) : (
+                Array.from({ length: espaciosLibres }).map((_, index) => (
+                  <button 
+                    key={`free-slot-${index}`}
+                    onClick={handleCreateNew}
+                    className={`${cardStyle} border-dashed border-2 border-white/30 bg-black/50 hover:border-white/80 hover:bg-white/5 items-center justify-center active:scale-95 cursor-pointer`}
+                  >
+                    <div className="bg-white/10 p-3 md:p-4 rounded-full mb-2 md:mb-4 group-hover:scale-110 transition-all">
+                      <Plus className="w-5 h-5 md:w-8 md:h-8 text-white" />
+                    </div>
+                    <span className="text-[8px] md:text-sm font-black uppercase tracking-[0.15em] text-white text-center leading-tight mb-1">
+                      Crear<br/>Rutina
+                    </span>
+                    <span className="text-[6px] md:text-[9px] font-bold uppercase tracking-widest text-zinc-500 mt-1">
+                      Disp. ({rutinas.length + index + 1}/{MAX_RUTINAS})
+                    </span>
+                  </button>
+                ))
+              )}
 
-            {/* 3. TARJETA BLOQUEADA (SOLO CLÁSICO) */}
-            {!isPremium && (
-              <div className="bg-zinc-950/50 backdrop-blur-sm border border-zinc-800 rounded-2xl p-6 flex flex-col items-center justify-center min-h-[250px] relative overflow-hidden opacity-70">
-                <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, #fff 10px, #fff 11px)' }}></div>
-                <div className="bg-zinc-900 p-4 rounded-full mb-4 border border-zinc-700 relative z-10">
-                  <Lock className="w-6 h-6 text-zinc-500" />
+              {/* 3. TARJETA BLOQUEADA (SOLO CLÁSICO) */}
+              {!isPremium && (
+                <div className={`${cardStyle} border-zinc-800 bg-zinc-950/50 opacity-70 items-center justify-center`}>
+                  <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, #fff 10px, #fff 11px)' }}></div>
+                  <div className="bg-zinc-900 p-3 rounded-full mb-2 border border-zinc-700 relative z-10">
+                    <Lock className="w-4 h-4 md:w-6 md:h-6 text-zinc-500" />
+                  </div>
+                  <h3 className="text-[7px] md:text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400 mb-2 relative z-10 text-center leading-tight">
+                    Ranura<br/>Bloqueada
+                  </h3>
                 </div>
-                <h3 className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400 mb-2 relative z-10 text-center">
-                  Ranura de Expansión
-                </h3>
-                <p className="text-[9px] text-zinc-600 text-center font-bold uppercase tracking-widest mt-4 max-w-[180px] relative z-10">
-                  Desbloquea rutinas ilimitadas próximamente
-                </p>
-              </div>
-            )}
+              )}
+            </div>
 
+            {/* Botón Inferior: Reportar Errores (Fijo al final del contenedor flex) */}
+            <div className="mt-auto pt-6 flex justify-center shrink-0">
+              <button 
+                onClick={() => setShowReportModal(true)}
+                className="flex items-center gap-2 text-zinc-500 hover:text-amber-500 transition-colors bg-zinc-950/50 px-4 py-2 rounded-full border border-zinc-800/80 hover:border-amber-500/50 backdrop-blur-sm text-[8px] md:text-[10px] font-black uppercase tracking-widest"
+              >
+                <AlertTriangle className="w-3 h-3 md:w-4 md:h-4" />
+                Reportar Problemas
+              </button>
+            </div>
           </div>
-
-          {/* Botón Inferior: Reportar Errores */}
-          <div className="mt-auto border-t border-white/10 pt-6 flex justify-center">
-            <button 
-              onClick={() => setShowReportModal(true)}
-              className="flex items-center gap-2 text-zinc-500 hover:text-amber-500 transition-colors bg-zinc-950/50 px-4 py-2 rounded-full border border-zinc-800/80 hover:border-amber-500/50 backdrop-blur-sm text-[10px] font-black uppercase tracking-widest"
-            >
-              <AlertTriangle className="w-4 h-4" />
-              ¿Problemas con las rutinas? Repórtalos aquí
-            </button>
-          </div>
-
         </div>
       </main>
 

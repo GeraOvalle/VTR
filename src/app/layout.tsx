@@ -8,7 +8,10 @@ import { SyncProvider } from "./context/synccontext";
 import { WorkoutProvider } from "./context/workoutcontext";
 import { NotificacionesProvider } from "./context/notificacionescontext";
 
-// 🔴 IMPORTAMOS EL TRAY (Interfaz visual de notificaciones)
+// IMPORTAMOS EL ESCUDO DE GESTOS
+import GestureShield from "./context/gestureshield"; 
+
+// IMPORTAMOS EL TRAY
 import NotificacionesTray from "./modules/notificaciones/notificacionestray";
 
 const geistSans = Geist({
@@ -37,9 +40,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col bg-black text-white">
+    <html lang="es" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased overscroll-none`}>
+      <body className="min-h-full flex flex-col bg-black text-white overscroll-none overflow-x-hidden">
         
+        {/* ESCUDO GLOBAL DE GESTOS MÓVILES */}
+        <GestureShield />
+
         {/* 1. EL RELOJ ES EL PADRE ABSOLUTO (No depende de internet) */}
         <RestTimerProvider> 
           
@@ -49,7 +55,7 @@ export default function RootLayout({
             {/* 3. SISTEMA GLOBAL DE NOTIFICACIONES */}
             <NotificacionesProvider>
               
-              {/* 🔴 Inyectamos el Tray visual para que exista en toda la app */}
+              {/* Inyectamos el Tray visual para que exista en toda la app */}
               <NotificacionesTray />
 
               {/* 4. EL CEREBRO DE RUTINAS */}

@@ -88,7 +88,7 @@ export default function CompletarPerfil({ onComplete }: CompletarPerfilProps) {
   };
 
   return (
-    <main className="min-h-screen bg-black flex items-center justify-center p-4 relative overflow-hidden font-sans">
+    <main className="fixed inset-0 h-[100dvh] w-full bg-black flex flex-col items-center justify-center p-4 overflow-hidden font-sans">
       
       {/* Fondo Escamoso Táctico / Patrón de Piel de Serpiente */}
       <div 
@@ -124,7 +124,7 @@ export default function CompletarPerfil({ onComplete }: CompletarPerfilProps) {
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 font-bold">@</span>
             <input 
               type="text" 
-              placeholder="Ej. CoachVital"
+              placeholder="Ej. AtletaVTR"
               value={usernameDisplay}
               onChange={handleUsernameChange}
               className={`w-full bg-white/5 border rounded-lg p-3 pl-8 text-sm text-white focus:outline-none focus:bg-white/10 transition-all font-bold tracking-wider ${

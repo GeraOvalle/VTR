@@ -21,10 +21,10 @@ const MOTIVOS_REPORTE = [
   "Otro problema"
 ];
 
-// LÍMITES POR ROL
+// LÍMITES POR ROL (Tester eliminado, clasicoplus añadido)
 const LIMITES_RUTINAS = {
   clasico: 4,
-  tester: 50,
+  clasicoplus: 50,
   entrenador: 50,
   admin: Infinity
 };
@@ -76,7 +76,7 @@ export default function CreacionRutinaModule({ onBack, tipoRutina = "personal", 
       try {
         const userDoc = await getDoc(doc(db, "users", user.uid));
         if (userDoc.exists()) {
-          setUserRole(userDoc.data().rol || "clasico");
+          setUserRole(userDoc.data().rol?.toLowerCase() || "clasico");
         }
       } catch (error) {
         console.error("Error obteniendo rol:", error);
@@ -139,8 +139,24 @@ export default function CreacionRutinaModule({ onBack, tipoRutina = "personal", 
     sessionStorage.setItem(KEY_DRAFT_NOMBRE, nombreRutina);
   }, [ejercicios, nombreRutina, isLoaded, KEY_DRAFT_EJERCICIOS, KEY_DRAFT_NOMBRE]);
 
+  // ESCUCHA DEL GESTO FÍSICO "ATRÁS" DEL CELULAR
+  useEffect(() => {
+    const handleHardwareBack = () => {
+      if (showReportModal) {
+        setShowReportModal(false);
+      } else if (alertConfig) {
+        setAlertConfig(null);
+      } else {
+        handleExit(); // Intentamos salir, lo que lanzará la advertencia de guardado si hay cambios
+      }
+    };
+
+    window.addEventListener("hardware-back-press", handleHardwareBack);
+    return () => window.removeEventListener("hardware-back-press", handleHardwareBack);
+  }, [showReportModal, alertConfig, ejercicios, nombreRutina, editRoutineId]);
+
   const handleAddExercise = (ejercicioBase: any) => {
-    // 🔴 CLONACIÓN PROFUNDA: Desvincula completamente el ejercicio de su origen en memoria
+    // CLONACIÓN PROFUNDA: Desvincula completamente el ejercicio de su origen en memoria
     const ejercicioClonado = JSON.parse(JSON.stringify(ejercicioBase));
     
     const nuevoEjercicio = {
@@ -179,7 +195,7 @@ export default function CreacionRutinaModule({ onBack, tipoRutina = "personal", 
         if (tipoRutina === "asignada") {
           const targetDoc = await getDoc(doc(db, "users", targetId));
           if (targetDoc.exists()) {
-            targetRoleForLimits = targetDoc.data().rol || "clasico";
+            targetRoleForLimits = targetDoc.data().rol?.toLowerCase() || "clasico";
           }
         }
 
@@ -192,8 +208,8 @@ export default function CreacionRutinaModule({ onBack, tipoRutina = "personal", 
             type: 'warning',
             title: tipoRutina === "asignada" ? 'Límite del Cliente Alcanzado' : 'Límite de Rutinas Alcanzado',
             message: tipoRutina === "asignada" 
-              ? `Este cliente (${targetRoleForLimits}) permite un máximo de ${limit} rutinas. Pídele que elimine una antigua o que mejore su cuenta a Clásico+ para poder enviarle más.` 
-              : `Tu cuenta (${userRole}) permite un máximo de ${limit} rutinas. Elimina una rutina antigua o mejora tu plan para crear más.`,
+              ? `Este cliente permite un máximo de ${limit} rutinas. Pídele que elimine una antigua o que mejore su cuenta a Clásico+ para poder enviarle más.` 
+              : `Tu cuenta permite un máximo de ${limit} rutinas. Elimina una rutina antigua o mejora tu plan para crear más.`,
             confirmText: 'Entendido'
           });
           setGuardando(false);
@@ -332,19 +348,19 @@ export default function CreacionRutinaModule({ onBack, tipoRutina = "personal", 
   };
 
   return (
-    <main className="min-h-screen bg-black text-white p-4 md:p-6 lg:p-8 relative overflow-x-hidden font-sans selection:bg-rose-500/30">
+    <main className="fixed inset-0 h-[100dvh] w-full flex flex-col bg-black text-white p-4 md:p-6 lg:p-8 relative overflow-hidden font-sans selection:bg-rose-500/30">
       
       {/* Fondos */}
-      <div className="fixed inset-0 pointer-events-none z-0 opacity-40" style={{
+      <div className="absolute inset-0 pointer-events-none z-0 opacity-40" style={{
         backgroundImage: `radial-gradient(circle at 50% 50%, rgba(38, 38, 38, 0.4) 0%, rgba(10, 10, 10, 0.8) 70%, #000000 100%), repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.03) 0px, rgba(255, 255, 255, 0.03) 2px, transparent 2px, transparent 8px), repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.03) 0px, rgba(255, 255, 255, 0.03) 2px, transparent 2px, transparent 8px)`,
         backgroundSize: '100% 100%, 16px 16px, 16px 16px'
       }}></div>
-      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-transparent via-black/90 to-black pointer-events-none z-0"></div>
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-transparent via-black/90 to-black pointer-events-none z-0"></div>
 
-      <div className="w-full max-w-5xl mx-auto relative z-10 flex flex-col pb-16">
+      <div className="w-full max-w-5xl mx-auto relative z-10 flex flex-col h-full">
         
         {/* Header del Constructor */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 border-b border-white/10 pb-4 mt-2">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4 border-b border-white/10 pb-4 shrink-0">
           
           <button onClick={handleExit} className="flex items-center gap-2 text-zinc-400 hover:text-amber-500 transition-colors group">
             <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
@@ -380,17 +396,18 @@ export default function CreacionRutinaModule({ onBack, tipoRutina = "personal", 
         </div>
 
         {/* NAVEGACIÓN POR PESTAÑAS */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-8 border-b-0 sm:border-b border-white/10 mb-6 sm:px-2">
+        <div className="flex items-stretch sm:items-center gap-2 sm:gap-8 border-b-0 sm:border-b border-white/10 mb-4 shrink-0">
           <button
             onClick={() => setActiveTab("visor")}
-            className={`p-3 sm:p-0 sm:pb-4 text-[11px] font-black uppercase tracking-widest transition-all relative flex items-center justify-center sm:justify-start gap-2 rounded-lg sm:rounded-none whitespace-nowrap ${
+            className={`flex-1 sm:flex-none p-3 sm:p-0 sm:pb-4 text-[10px] sm:text-[11px] font-black uppercase tracking-widest transition-all relative flex items-center justify-center sm:justify-start gap-2 rounded-lg sm:rounded-none whitespace-nowrap ${
               activeTab === "visor" 
                 ? "bg-rose-500/10 sm:bg-transparent text-rose-500 border border-rose-500/30 sm:border-transparent" 
                 : "bg-zinc-900/50 sm:bg-transparent text-zinc-500 border border-transparent hover:text-zinc-300 hover:bg-zinc-800/50 sm:hover:bg-transparent"
             }`}
           >
             <Search className="w-4 h-4" />
-            SELECTOR DE EJERCICIOS
+            <span className="hidden sm:inline">SELECTOR DE EJERCICIOS</span>
+            <span className="sm:hidden">EJERCICIOS</span>
             {activeTab === "visor" && (
               <div className="hidden sm:block absolute bottom-0 left-0 w-full h-[3px] bg-rose-500 rounded-t-full shadow-[0_-2px_10px_rgba(244,63,94,0.5)]" />
             )}
@@ -398,14 +415,15 @@ export default function CreacionRutinaModule({ onBack, tipoRutina = "personal", 
 
           <button
             onClick={() => setActiveTab("estructura")}
-            className={`p-3 sm:p-0 sm:pb-4 text-[11px] font-black uppercase tracking-widest transition-all relative flex items-center justify-center sm:justify-start gap-2 rounded-lg sm:rounded-none whitespace-nowrap ${
+            className={`flex-1 sm:flex-none p-3 sm:p-0 sm:pb-4 text-[10px] sm:text-[11px] font-black uppercase tracking-widest transition-all relative flex items-center justify-center sm:justify-start gap-2 rounded-lg sm:rounded-none whitespace-nowrap ${
               activeTab === "estructura" 
                 ? "bg-rose-500/10 sm:bg-transparent text-rose-500 border border-rose-500/30 sm:border-transparent" 
                 : "bg-zinc-900/50 sm:bg-transparent text-zinc-500 border border-transparent hover:text-zinc-300 hover:bg-zinc-800/50 sm:hover:bg-transparent"
             }`}
           >
             <Activity className="w-4 h-4" />
-            ESTRUCTURA DE LA RUTINA
+            <span className="hidden sm:inline">ESTRUCTURA DE LA RUTINA</span>
+            <span className="sm:hidden">ESTRUCTURA</span>
             
             {ejercicios.length > 0 && (
               <span className={`ml-1 px-1.5 py-0.5 rounded text-[9px] transition-colors ${
@@ -421,50 +439,54 @@ export default function CreacionRutinaModule({ onBack, tipoRutina = "personal", 
           </button>
         </div>
 
-        {/* CONTENIDO DE LAS PESTAÑAS */}
-        <div className="w-full">
+        {/* CONTENIDO DE LAS PESTAÑAS (FLEX-1 PARA OCUPAR EL ESPACIO RESTANTE Y HACER SCROLL INTERNO) */}
+        <div className="w-full flex-1 overflow-hidden flex flex-col">
           {activeTab === "visor" && (
-            <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-300 flex-1 overflow-hidden flex flex-col">
               <VisorEjercicios onAddExercise={handleAddExercise} />
             </div>
           )}
 
           {activeTab === "estructura" && (
-            <div className="animate-in fade-in slide-in-from-bottom-4 duration-300 flex flex-col gap-4">
-              <EstructuraRutina 
-                nombre={nombreRutina}
-                onNameChange={setNombreRutina}
-                ejercicios={ejercicios} 
-                onUpdateEjercicios={handleUpdateEjercicios}
-                targetUserId={targetUserId}
-              />
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-300 flex-1 flex flex-col gap-4 overflow-hidden">
+              <div className="flex-1 overflow-hidden">
+                <EstructuraRutina 
+                  nombre={nombreRutina}
+                  onNameChange={setNombreRutina}
+                  ejercicios={ejercicios} 
+                  onUpdateEjercicios={handleUpdateEjercicios}
+                  targetUserId={targetUserId}
+                />
+              </div>
 
-              {/* BOTÓN GUARDAR DINÁMICO */}
-              <button 
-                onClick={guardarProtocolo}
-                className={`w-full text-white font-black uppercase tracking-widest text-[11px] py-4 rounded-2xl transition-all active:scale-[0.98] flex justify-center items-center gap-2.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 ${
-                  editRoutineId 
-                    ? "bg-cyan-600 hover:bg-cyan-500 shadow-[0_0_30px_rgba(8,145,178,0.3)] hover:shadow-[0_0_40px_rgba(8,145,178,0.6)]" 
-                    : "bg-rose-500 hover:bg-rose-400 shadow-[0_0_30px_rgba(244,63,94,0.3)] hover:shadow-[0_0_40px_rgba(244,63,94,0.6)]"
-                }`}
-                disabled={ejercicios.length === 0 || !nombreRutina.trim() || guardando || !isLoaded}
-              >
-                {guardando ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" /> Guardando Cambios...
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4" /> 
-                    {editRoutineId 
-                      ? "Guardar Cambios" 
-                      : tipoRutina === "asignada"
-                        ? `Asignar a cliente`
-                        : `Crear ${tipoRutina === "prearmada" ? 'plantilla' : 'rutina'} "${nombreRutina.trim() || 'Sin Nombre'}"`
-                    }
-                  </>
-                )}
-              </button>
+              {/* BOTÓN GUARDAR DINÁMICO (FIJO AL FONDO) */}
+              <div className="shrink-0 pt-2 pb-4">
+                <button 
+                  onClick={guardarProtocolo}
+                  className={`w-full text-white font-black uppercase tracking-widest text-[11px] py-4 rounded-2xl transition-all active:scale-[0.98] flex justify-center items-center gap-2.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 ${
+                    editRoutineId 
+                      ? "bg-cyan-600 hover:bg-cyan-500 shadow-[0_0_30px_rgba(8,145,178,0.3)] hover:shadow-[0_0_40px_rgba(8,145,178,0.6)]" 
+                      : "bg-rose-500 hover:bg-rose-400 shadow-[0_0_30px_rgba(244,63,94,0.3)] hover:shadow-[0_0_40px_rgba(244,63,94,0.6)]"
+                  }`}
+                  disabled={ejercicios.length === 0 || !nombreRutina.trim() || guardando || !isLoaded}
+                >
+                  {guardando ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" /> Guardando Cambios...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" /> 
+                      {editRoutineId 
+                        ? "Guardar Cambios" 
+                        : tipoRutina === "asignada"
+                          ? `Asignar a cliente`
+                          : `Crear ${tipoRutina === "prearmada" ? 'plantilla' : 'rutina'} "${nombreRutina.trim() || 'Sin Nombre'}"`
+                      }
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           )}
         </div>

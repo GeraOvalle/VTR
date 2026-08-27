@@ -79,10 +79,10 @@ export default function DetallesEjercicio({ ejercicio, onClose, onAdd }: Detalle
   return (
     <>
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-        <div className="bg-zinc-950 border border-rose-500/30 rounded-2xl w-full max-w-xl max-h-[90vh] flex flex-col shadow-[0_0_50px_rgba(244,63,94,0.15)] overflow-hidden">
+        <div className="bg-zinc-950 border border-rose-500/30 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-[0_0_50px_rgba(244,63,94,0.15)] overflow-hidden">
           
           {/* Header del Modal */}
-          <div className="p-5 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50 shrink-0">
+          <div className="p-4 sm:p-5 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50 shrink-0">
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
                 <Activity className="w-4 h-4 text-rose-500" />
@@ -114,14 +114,14 @@ export default function DetallesEjercicio({ ejercicio, onClose, onAdd }: Detalle
             </div>
           </div>
 
-          {/* Contenido Desplazable */}
-          <div className="p-6 overflow-y-auto space-y-6 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-800 hover:[&::-webkit-scrollbar-thumb]:bg-rose-500/50 [&::-webkit-scrollbar-thumb]:rounded-full flex-1">
+          {/* CUERPO DIVIDIDO EN DOS (Fijo arriba, Scroll abajo) */}
+          <div className="flex flex-col flex-1 overflow-hidden">
             
-            {/* Visual y Datos Principales */}
-            <div className="flex flex-col sm:flex-row gap-5 items-center bg-white/5 border border-white/5 rounded-xl p-4">
+            {/* 1. VISUAL Y DATOS PRINCIPALES (FIJOS) */}
+            <div className="p-5 sm:p-6 flex flex-col sm:flex-row gap-5 items-center bg-black/40 border-b border-zinc-800 shrink-0 z-10 shadow-lg relative">
               
-              {/* Contenedor Imagen Seguro */}
-              <div className="relative w-32 h-32 rounded-lg bg-black border border-zinc-800 flex items-center justify-center shrink-0 overflow-hidden shadow-md">
+              {/* Contenedor Imagen Seguro y Más Grande */}
+              <div className="relative w-40 h-40 sm:w-48 sm:h-48 rounded-lg bg-black border border-zinc-800 flex items-center justify-center shrink-0 overflow-hidden shadow-[0_0_20px_rgba(0,0,0,0.5)]">
                 {ejercicio.gifUrl && !imageFailed ? (
                   <img 
                     src={ejercicio.gifUrl} 
@@ -131,61 +131,63 @@ export default function DetallesEjercicio({ ejercicio, onClose, onAdd }: Detalle
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center text-center p-2 opacity-70">
-                    <Dumbbell className="w-8 h-8 text-zinc-700 mb-1.5" />
-                    <span className="text-[8px] tracking-widest font-black text-zinc-500">SIN VISTA PREVIA</span>
-                    <span className="text-[6px] tracking-widest font-bold text-zinc-600 mt-1 uppercase">Estamos trabajando<br/>en ello</span>
+                    <Dumbbell className="w-10 h-10 text-zinc-700 mb-2" />
+                    <span className="text-[9px] tracking-widest font-black text-zinc-500">SIN VISTA PREVIA</span>
+                    <span className="text-[7px] tracking-widest font-bold text-zinc-600 mt-1 uppercase">Estamos trabajando<br/>en ello</span>
                   </div>
                 )}
-                {/* 🔴 Etiqueta de Ejercicio Personalizado */}
+                {/* Etiqueta de Ejercicio Personalizado */}
                 {ejercicio.isCustom && (
-                  <div className="absolute top-2 left-2 bg-cyan-500/90 text-white text-[8px] font-black uppercase px-2 py-1 rounded backdrop-blur-md shadow-sm z-10">
+                  <div className="absolute top-2 left-2 bg-cyan-500/90 text-white text-[9px] font-black uppercase px-2 py-1 rounded backdrop-blur-md shadow-sm z-10">
                     Propio
                   </div>
                 )}
               </div>
               
-              <div className="space-y-2 text-center sm:text-left w-full">
-                <h2 className="text-base font-black text-white capitalize tracking-wide">
+              <div className="space-y-3 text-center sm:text-left w-full flex-1">
+                <h2 className="text-lg sm:text-xl font-black text-white capitalize tracking-wide leading-tight">
                   {ejercicio.nombreEs || ejercicio.nombre}
                 </h2>
                 
-                {/* 🔴 Aviso de Revisión para el Usuario */}
+                {/* Aviso de Revisión para el Usuario */}
                 {ejercicio.estadoRevision === "pendiente" && (
-                  <div className="inline-flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/30 text-amber-500 px-2 py-1 rounded-md mb-1">
-                    <ShieldAlert className="w-3 h-3" />
-                    <span className="text-[8px] font-black uppercase tracking-widest">
+                  <div className="inline-flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/30 text-amber-500 px-2.5 py-1.5 rounded-md mb-1">
+                    <ShieldAlert className="w-3.5 h-3.5" />
+                    <span className="text-[9px] font-black uppercase tracking-widest">
                       Pendiente de Aprobación Global
                     </span>
                   </div>
                 )}
                 
-                <div className="flex flex-wrap gap-2 justify-center sm:justify-start pt-1">
-                  <span className="bg-rose-500/10 border border-rose-500/30 text-rose-400 px-2.5 py-1 rounded text-[9px] font-black uppercase tracking-wider">
-                    Principal: {ejercicio.musculoEs || ejercicio.musculoObjetivo}
-                  </span>
-                  <span className="bg-white/5 border border-white/10 text-zinc-300 px-2.5 py-1 rounded text-[9px] font-bold uppercase tracking-wider">
-                    Equipo: {ejercicio.equipoEs || ejercicio.equipo}
-                  </span>
-                </div>
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-wrap gap-2 justify-center sm:justify-start">
+                    <span className="bg-rose-500/10 border border-rose-500/30 text-rose-400 px-3 py-1.5 rounded text-[10px] font-black uppercase tracking-wider">
+                      Principal: {ejercicio.musculoEs || ejercicio.musculoObjetivo}
+                    </span>
+                    <span className="bg-white/5 border border-white/10 text-zinc-300 px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider">
+                      Equipo: {ejercicio.equipoEs || ejercicio.equipo}
+                    </span>
+                  </div>
 
-                {ejercicio.musculosSecundariosEs?.length > 0 && (
-                  <p className="text-[9px] text-zinc-400 uppercase tracking-widest pt-1">
-                    <span className="text-zinc-500 font-bold">Secundarios:</span> {ejercicio.musculosSecundariosEs.join(", ")}
-                  </p>
-                )}
+                  {ejercicio.musculosSecundariosEs?.length > 0 && (
+                    <p className="text-[10px] text-zinc-400 uppercase tracking-widest pt-1">
+                      <span className="text-zinc-500 font-bold">Secundarios:</span> {ejercicio.musculosSecundariosEs.join(", ")}
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* Instrucciones Paso a Paso */}
-            <div>
-              <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400 mb-3 border-b border-zinc-800 pb-2">
-                Ejecución
+            {/* 2. INSTRUCCIONES PASO A PASO (CON SCROLL INTERNO) */}
+            <div className="p-5 sm:p-6 overflow-y-auto flex-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-800 hover:[&::-webkit-scrollbar-thumb]:bg-rose-500/50 [&::-webkit-scrollbar-thumb]:rounded-full bg-zinc-950/50">
+              <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400 mb-4 border-b border-zinc-800 pb-2">
+                Ejecución Paso a Paso
               </h4>
               
-              <ul className="space-y-2.5">
+              <ul className="space-y-3">
                 {(ejercicio.instruccionesEs || ejercicio.instrucciones)?.map((inst: string, i: number) => (
-                  <li key={i} className="text-xs text-zinc-300 leading-relaxed bg-black/40 p-3 rounded-lg border border-zinc-800/80 flex gap-3">
-                    <span className="text-rose-500 font-black">{i + 1}.</span> 
+                  <li key={i} className="text-xs sm:text-sm text-zinc-300 leading-relaxed bg-white/5 p-4 rounded-xl border border-white/5 flex gap-3 sm:gap-4 shadow-sm">
+                    <span className="text-rose-500 font-black mt-0.5">{i + 1}.</span> 
                     <span className="flex-1">{inst}</span>
                   </li>
                 ))}
@@ -194,11 +196,11 @@ export default function DetallesEjercicio({ ejercicio, onClose, onAdd }: Detalle
 
           </div>
 
-          {/* Footer con Acción */}
-          <div className="p-5 border-t border-zinc-800 bg-zinc-900/50 flex justify-end gap-3 shrink-0">
+          {/* Footer con Acción Fijo */}
+          <div className="p-4 sm:p-5 border-t border-zinc-800 bg-zinc-900/50 flex justify-end gap-3 shrink-0">
             <button 
               onClick={onClose}
-              className="px-5 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-widest text-zinc-400 hover:text-white transition-colors border border-transparent hover:border-zinc-700 bg-zinc-900/80 hover:bg-zinc-800"
+              className="px-5 py-3 rounded-lg text-[10px] font-bold uppercase tracking-widest text-zinc-400 hover:text-white transition-colors border border-transparent hover:border-zinc-700 bg-zinc-900/80 hover:bg-zinc-800"
             >
               Cerrar Vista
             </button>
@@ -209,7 +211,7 @@ export default function DetallesEjercicio({ ejercicio, onClose, onAdd }: Detalle
                   onAdd(ejercicio);
                   onClose();
                 }}
-                className="bg-rose-500 text-white px-6 py-2.5 rounded-lg font-black uppercase tracking-widest text-[10px] shadow-[0_0_20px_rgba(244,63,94,0.3)] hover:scale-105 transition-all flex items-center gap-2"
+                className="bg-rose-500 text-white px-6 py-3 rounded-lg font-black uppercase tracking-widest text-[10px] shadow-[0_0_20px_rgba(244,63,94,0.3)] hover:scale-105 transition-all flex items-center gap-2"
               >
                 <CheckCircle2 className="w-4 h-4" /> Agregar ejercicio
               </button>
