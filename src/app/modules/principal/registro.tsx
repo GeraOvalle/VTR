@@ -1,9 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Eye, EyeOff, ShieldAlert, ArrowLeft, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
+import { Eye, EyeOff, ShieldAlert, ArrowLeft, CheckCircle2, AlertTriangle, Loader2, CheckSquare, Square, FileText, ShieldCheck } from "lucide-react";
 import { auth } from "../../lib/firebase";
 import { createUserWithEmailAndPassword, sendEmailVerification, signOut } from "firebase/auth";
+
+// Importación de los módulos legales creados
+import PagetTU from "./documentos/pageTU";
+import PagePriv from "./documentos/pagepriv";
+import PageBug from "./documentos/pagebug";
 
 interface RegisterModuleProps {
   onBackToLogin: () => void;
@@ -17,13 +22,25 @@ export default function RegisterModule({ onBackToLogin }: RegisterModuleProps) {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   
+  // Estados para los checkboxes de aceptación legal
+  const [acceptTerms, setAcceptTerms] = useState(false);
+  const [acceptPrivacy, setAcceptPrivacy] = useState(false);
+
+  // Estados de proceso, errores y éxito
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  // Estado para controlar qué documento legal se está visualizando (si aplica)
+  const [activeDoc, setActiveDoc] = useState<"none" | "terms" | "privacy" | "support">("none");
+
+  // Estado para el Popup de confirmación final antes del registro
+  const [showLegalPopup, setShowLegalPopup] = useState(false);
+
   const passwordsMatch = password && confirmPassword && password === confirmPassword;
 
-  const handleRegister = async (e: React.FormEvent) => {
+  // Paso 1: Validar campos y mostrar el popup de confirmación legal
+  const handlePreRegister = (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setSuccess("");
@@ -38,6 +55,23 @@ export default function RegisterModule({ onBackToLogin }: RegisterModuleProps) {
       return;
     }
 
+    if (password.length < 6) {
+      setError("SISTEMA: La contraseña debe tener al menos 6 caracteres.");
+      return;
+    }
+
+    if (!acceptTerms || !acceptPrivacy) {
+      setError("SISTEMA: Debes aceptar los Términos de Uso y la Política de Privacidad.");
+      return;
+    }
+
+    // Si todo está correcto, abrimos el popup de advertencia legal final
+    setShowLegalPopup(true);
+  };
+
+  // Paso 2: Ejecutar el registro real en Firebase tras confirmar el Popup
+  const handleConfirmRegister = async () => {
+    setShowLegalPopup(false);
     setLoading(true);
 
     try {
@@ -47,36 +81,47 @@ export default function RegisterModule({ onBackToLogin }: RegisterModuleProps) {
       // 2. Enviar correo de verificación
       await sendEmailVerification(userCredential.user);
 
-      // 3. CERRAR SESIÓN INMEDIATAMENTE (Para que no entre al sistema)
+      // 3. CERRAR SESIÓN INMEDIATAMENTE (Para que no entre al sistema sin verificar)
       await signOut(auth);
       
       // 4. Guardar el correo localmente para pre-llenarlo en el Login
       localStorage.setItem("cv_registered_email", email);
       
       // 5. Mostrar éxito y redirigir
-      setSuccess("Cuenta creada. Revisa tu correo (y el SPAM) para verificar. Redirigiendo al login...");
+      setSuccess("Cuenta creada con éxito. Revisa tu bandeja de entrada y SPAM para verificar tu correo. Redirigiendo al login...");
       
       setTimeout(() => {
         onBackToLogin();
-      }, 3500);
+      }, 4000);
 
     } catch (err: any) {
       console.error(err);
       if (err.code === "auth/email-already-in-use") {
-        setError("Este correo ya está en uso.");
+        setError("Este correo ya está registrado en el sistema.");
       } else if (err.code === "auth/weak-password") {
         setError("Contraseña débil. Usa al menos 6 caracteres.");
       } else if (err.code === "auth/invalid-email") {
-        setError("Formato de correo inválido.");
+        setError("Formato de correo electrónico inválido.");
       } else {
-        setError("Error de conexión. Intenta de nuevo.");
+        setError("Error de conexión con el servidor. Intenta de nuevo.");
       }
       setLoading(false);
     }
   };
 
+  // Renderizado condicional si el usuario abre algún documento legal desde el registro
+  if (activeDoc === "terms") {
+    return <PagetTU onBack={() => setActiveDoc("none")} />;
+  }
+  if (activeDoc === "privacy") {
+    return <PagePriv onBack={() => setActiveDoc("none")} />;
+  }
+  if (activeDoc === "support") {
+    return <PageBug onBack={() => setActiveDoc("none")} />;
+  }
+
   return (
-    <main className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-4 relative overflow-hidden font-sans selection:bg-rose-500/30">
+    <main className="fixed inset-0 h-[100dvh] w-full bg-black text-white flex flex-col items-center justify-center p-4 overflow-hidden font-sans selection:bg-rose-500/30">
       
       {/* Fondo Escamoso Táctico / Patrón de Piel de Serpiente */}
       <div 
@@ -95,11 +140,11 @@ export default function RegisterModule({ onBackToLogin }: RegisterModuleProps) {
       <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-50 z-10"></div>
 
       {/* Main Panel */}
-      <div className="w-full max-w-sm bg-zinc-950/95 backdrop-blur-xl border border-white/40 rounded-2xl p-8 pt-8 relative z-10 shadow-[0_0_50px_-10px_rgba(255,255,255,0.25)] ring-1 ring-white/20">
+      <div className="w-full max-w-sm bg-zinc-950/95 backdrop-blur-xl border border-white/40 rounded-2xl p-6 pt-6 relative z-10 shadow-[0_0_50px_-10px_rgba(255,255,255,0.25)] ring-1 ring-white/20 max-h-[90vh] overflow-y-auto custom-scrollbar">
         
         {/* Header con Logo */}
-        <div className="flex flex-col items-center text-center mb-6">
-          <div className="relative mb-4 w-24 h-24 bg-white/[0.03] backdrop-blur-md rounded-2xl border border-white/15 flex items-center justify-center overflow-hidden shadow-[0_0_30px_rgba(159,18,57,0.25)] ring-1 ring-white/10 group">
+        <div className="flex flex-col items-center text-center mb-4">
+          <div className="relative mb-3 w-20 h-20 bg-white/[0.03] backdrop-blur-md rounded-2xl border border-white/15 flex items-center justify-center overflow-hidden shadow-[0_0_30px_rgba(159,18,57,0.25)] ring-1 ring-white/10 group">
              <div className="absolute inset-0 bg-gradient-to-b from-rose-950/20 via-transparent to-black/40 pointer-events-none z-10"></div>
              <img 
                src="/logo_coach.png" 
@@ -108,33 +153,33 @@ export default function RegisterModule({ onBackToLogin }: RegisterModuleProps) {
              />
           </div>
 
-          <h1 className="text-3xl font-black tracking-tighter text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]">
+          <h1 className="text-2xl font-black tracking-tighter text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]">
             REGISTRO
           </h1>
-          <span className="text-[9px] text-zinc-400 uppercase tracking-[0.2em] font-black mt-1">
+          <span className="text-[9px] text-zinc-400 uppercase tracking-[0.2em] font-black mt-0.5">
             Crear Nueva Cuenta de Acceso
           </span>
         </div>
 
         {/* Alertas del Sistema HUD */}
         {error && (
-          <div className="mb-4 bg-rose-500/10 border border-rose-500/50 rounded-lg p-3 flex items-start gap-2 animate-pulse">
+          <div className="mb-3 bg-rose-500/10 border border-rose-500/50 rounded-lg p-2.5 flex items-start gap-2 animate-pulse">
             <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
             <p className="text-[10px] text-rose-400 font-bold uppercase tracking-wider">{error}</p>
           </div>
         )}
         
         {success && (
-          <div className="mb-4 bg-emerald-500/10 border border-emerald-500/50 rounded-lg p-3 flex items-start gap-2">
+          <div className="mb-3 bg-emerald-500/10 border border-emerald-500/50 rounded-lg p-2.5 flex items-start gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
             <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider leading-relaxed">{success}</p>
           </div>
         )}
 
         {/* Inputs Section */}
-        <form onSubmit={handleRegister} className="space-y-4">
+        <form onSubmit={handlePreRegister} className="space-y-3">
           <div className="flex flex-col">
-            <label className="text-[9px] text-zinc-400 font-black uppercase tracking-[0.2em] mb-1.5 ml-1">
+            <label className="text-[9px] text-zinc-400 font-black uppercase tracking-[0.2em] mb-1 ml-1">
               Correo Electrónico
             </label>
             <input 
@@ -142,13 +187,13 @@ export default function RegisterModule({ onBackToLogin }: RegisterModuleProps) {
               placeholder="correo@ejemplo.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-white/5 border border-white/15 rounded-lg p-3 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-white/50 focus:bg-white/10 transition-all"
+              className="w-full bg-white/5 border border-white/15 rounded-lg p-2.5 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-white/50 focus:bg-white/10 transition-all"
               disabled={loading || !!success}
             />
           </div>
 
           <div className="flex flex-col relative">
-            <label className="text-[9px] text-zinc-400 font-black uppercase tracking-[0.2em] mb-1.5 ml-1">
+            <label className="text-[9px] text-zinc-400 font-black uppercase tracking-[0.2em] mb-1 ml-1">
               Contraseña
             </label>
             <div className="relative">
@@ -157,7 +202,7 @@ export default function RegisterModule({ onBackToLogin }: RegisterModuleProps) {
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-white/5 border border-white/15 rounded-lg p-3 pr-10 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-white/50 focus:bg-white/10 transition-all tabular-nums tracking-widest"
+                className="w-full bg-white/5 border border-white/15 rounded-lg p-2.5 pr-10 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-white/50 focus:bg-white/10 transition-all tabular-nums tracking-widest"
                 disabled={loading || !!success}
               />
               <button 
@@ -172,7 +217,7 @@ export default function RegisterModule({ onBackToLogin }: RegisterModuleProps) {
           </div>
 
           <div className="flex flex-col relative">
-            <div className="flex justify-between items-center mb-1.5 ml-1 mr-1">
+            <div className="flex justify-between items-center mb-1 ml-1 mr-1">
               <label className="text-[9px] text-zinc-400 font-black uppercase tracking-[0.2em]">
                 Confirmar Contraseña
               </label>
@@ -188,7 +233,7 @@ export default function RegisterModule({ onBackToLogin }: RegisterModuleProps) {
                 placeholder="••••••••"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className={`w-full bg-white/5 border rounded-lg p-3 pr-10 text-sm text-white placeholder-zinc-600 focus:outline-none focus:bg-white/10 transition-all tabular-nums tracking-widest ${
+                className={`w-full bg-white/5 border rounded-lg p-2.5 pr-10 text-xs text-white placeholder-zinc-600 focus:outline-none focus:bg-white/10 transition-all tabular-nums tracking-widest ${
                   confirmPassword ? (passwordsMatch ? 'border-emerald-500/50' : 'border-rose-500/50') : 'border-white/15'
                 }`}
                 disabled={loading || !!success}
@@ -204,11 +249,46 @@ export default function RegisterModule({ onBackToLogin }: RegisterModuleProps) {
             </div>
           </div>
 
+          {/* NUEVOS CHECKBOXES DE ACEPTACIÓN LEGAL */}
+          <div className="space-y-2 pt-2 border-t border-white/10">
+            <div 
+              className="flex items-start gap-2 cursor-pointer group"
+              onClick={() => !loading && !success && setAcceptTerms(!acceptTerms)}
+            >
+              <div className="mt-0.5 shrink-0">
+                {acceptTerms ? (
+                  <CheckSquare className="w-4 h-4 text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.5)] transition-all" />
+                ) : (
+                  <Square className="w-4 h-4 text-zinc-600 group-hover:text-zinc-400 transition-colors" />
+                )}
+              </div>
+              <span className="text-[9px] text-zinc-400 leading-tight">
+                He leído y acepto los <span className="text-white underline cursor-pointer hover:text-rose-400" onClick={(e) => { e.stopPropagation(); setActiveDoc("terms"); }}>Términos y Condiciones de Uso</span>.
+              </span>
+            </div>
+
+            <div 
+              className="flex items-start gap-2 cursor-pointer group"
+              onClick={() => !loading && !success && setAcceptPrivacy(!acceptPrivacy)}
+            >
+              <div className="mt-0.5 shrink-0">
+                {acceptPrivacy ? (
+                  <CheckSquare className="w-4 h-4 text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.5)] transition-all" />
+                ) : (
+                  <Square className="w-4 h-4 text-zinc-600 group-hover:text-zinc-400 transition-colors" />
+                )}
+              </div>
+              <span className="text-[9px] text-zinc-400 leading-tight">
+                He leído y acepto el <span className="text-white underline cursor-pointer hover:text-rose-400" onClick={(e) => { e.stopPropagation(); setActiveDoc("privacy"); }}>Aviso de Privacidad Integral</span>.
+              </span>
+            </div>
+          </div>
+
           {/* Botón de Registrarse */}
           <button 
             type="submit"
             disabled={loading || !!success}
-            className="w-full mt-5 bg-white text-black font-black uppercase tracking-[0.15em] text-xs py-3.5 rounded-lg hover:bg-zinc-200 hover:shadow-[0_0_25px_rgba(255,255,255,0.4)] transition-all active:scale-[0.98] flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full mt-3 bg-white text-black font-black uppercase tracking-[0.15em] text-xs py-3 rounded-lg hover:bg-zinc-200 hover:shadow-[0_0_25px_rgba(255,255,255,0.4)] transition-all active:scale-[0.98] flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? (
               <>
@@ -221,7 +301,7 @@ export default function RegisterModule({ onBackToLogin }: RegisterModuleProps) {
         </form>
 
         {/* Back to Login Text */}
-        <div className="mt-6 text-center">
+        <div className="mt-4 text-center">
           <button 
             type="button"
             onClick={onBackToLogin}
@@ -232,6 +312,63 @@ export default function RegisterModule({ onBackToLogin }: RegisterModuleProps) {
           </button>
         </div>
       </div>
+
+      {/* Pie de página con enlaces legales idénticos al Login */}
+      <div className="absolute bottom-4 flex flex-col items-center gap-2 z-10 opacity-70 hover:opacity-100 transition-opacity">
+        <ShieldAlert className="w-3 h-3 text-zinc-600" />
+        <div className="flex gap-3 text-[8px] text-zinc-500 font-black uppercase tracking-[0.2em]">
+          <button type="button" onClick={() => setActiveDoc("terms")} className="hover:text-zinc-300 transition-colors focus:outline-none">
+            Términos de Uso
+          </button>
+          <span className="text-zinc-800">|</span>
+          <button type="button" onClick={() => setActiveDoc("privacy")} className="hover:text-zinc-300 transition-colors focus:outline-none">
+            Privacidad
+          </button>
+          <span className="text-zinc-800">|</span>
+          <button type="button" onClick={() => setActiveDoc("support")} className="hover:text-zinc-300 transition-colors focus:outline-none">
+            Soporte Operativo
+          </button>
+        </div>
+      </div>
+
+      {/* POPUP DE CONFIRMACIÓN LEGAL ANTES DE REGISTRAR */}
+      {showLegalPopup && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-zinc-950 border border-rose-500/50 rounded-2xl p-6 shadow-[0_0_40px_rgba(159,18,57,0.3)] text-center space-y-4">
+            <div className="w-12 h-12 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-center justify-center mx-auto text-rose-500">
+              <ShieldAlert className="w-6 h-6" />
+            </div>
+            
+            <h3 className="text-sm font-black uppercase tracking-widest text-white">
+              Aviso Legal de Confirmación
+            </h3>
+
+            <p className="text-xs text-zinc-300 leading-relaxed text-justify">
+              Al presionar <strong className="text-white">Continuar y Registrar</strong>, el sistema generará tu cuenta y enviará un <strong className="text-rose-400">correo de verificación</strong> obligatorio a tu bandeja. 
+              <br /><br />
+              Asimismo, confirmas de manera expresa que has leído y aceptas los <span className="text-white underline cursor-pointer" onClick={() => setActiveDoc("terms")}>Términos de Uso</span> y el <span className="text-white underline cursor-pointer" onClick={() => setActiveDoc("privacy")}>Aviso de Privacidad</span>, liberando a VTR de responsabilidades sobre entrenamiento físico y manejo de datos.
+            </p>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowLegalPopup(false)}
+                className="flex-1 bg-white/10 hover:bg-white/20 text-white font-bold uppercase text-[10px] tracking-wider py-3 rounded-lg transition-all"
+              >
+                Revisar de nuevo
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmRegister}
+                className="flex-1 bg-white hover:bg-zinc-200 text-black font-black uppercase text-[10px] tracking-wider py-3 rounded-lg transition-all shadow-[0_0_15px_rgba(255,255,255,0.3)]"
+              >
+                Continuar y Registrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </main>
   );
 }

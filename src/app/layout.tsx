@@ -22,8 +22,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Coach Vital",
-  description: "Tu entrenador personal de élite",
+  title: "VTR",
+  description: "Plataforma de entrenamiento inteligente",
+  appleWebApp: {
+    title: "VTR",
+    statusBarStyle: "black-translucent",
+    capable: true,
+  },
 };
 
 export default function RootLayout({

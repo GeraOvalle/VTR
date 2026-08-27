@@ -7,6 +7,9 @@ import { Eye, EyeOff, ShieldAlert, CheckSquare, Square, AlertTriangle, Loader2 }
 import RegisterModule from "./modules/principal/registro";
 import HomeModule from "./modules/home/home";
 import CompletarPerfil from "./modules/principal/completarperfil";
+import PagetTU from "./modules/principal/documentos/pageTU";
+import PagePriv from "./modules/principal/documentos/pagepriv";
+import PageBug from "./modules/principal/documentos/pagebug";
 
 // Importación de Firebase
 import { auth, db } from "./lib/firebase";
@@ -22,15 +25,11 @@ import {
   doc, 
   getDoc, 
   setDoc, 
-  serverTimestamp, 
-  collection, 
-  query, 
-  where, 
-  getCountFromServer // <-- IMPORTANTE: Para contar usuarios eficientemente
+  serverTimestamp
 } from "firebase/firestore";
 
 export default function LoginModule() {
-  const [currentView, setCurrentView] = useState<"login" | "register" | "home">("login");
+  const [currentView, setCurrentView] = useState<"login" | "register" | "home" | "terms" | "privacy" | "support">("login");
   const [needsProfile, setNeedsProfile] = useState(false);
   
   const [isInitializing, setIsInitializing] = useState(true);
@@ -115,15 +114,10 @@ export default function LoginModule() {
       // --- LÓGICA DE PRIMERA VEZ (CREACIÓN DE DOCUMENTO) ---
       if (!userDocSnap.exists() || !userDocSnap.data().nombre) {
         
-        // 1. Contar cuántos usuarios tienen el rol "tester"
-        const q = query(collection(db, "users"), where("rol", "==", "tester"));
-        const snapshot = await getCountFromServer(q);
-        const testerCount = snapshot.data().count;
+        // Asignación de rol por defecto para el lanzamiento
+        const rolAsignado = "clasico";
 
-        // 2. Asignar rol: Si hay menos de 10 testers, le damos el lugar. Si no, es clásico.
-        const rolAsignado = testerCount < 10 ? "tester" : "clasico";
-
-        // 3. Guardar el documento con el rol correspondiente
+        // Guardar el documento inicial del usuario
         await setDoc(userDocRef, {
           uid: user.uid,
           email: user.email,
@@ -156,7 +150,7 @@ export default function LoginModule() {
   // PANTALLA DE CARGA DEL SISTEMA
   if (isInitializing) {
     return (
-      <main className="min-h-screen bg-black flex flex-col items-center justify-center relative overflow-hidden">
+      <main className="fixed inset-0 h-[100dvh] w-full bg-black flex flex-col items-center justify-center overflow-hidden">
         <div 
           className="absolute inset-0 pointer-events-none z-0 opacity-20"
           style={{
@@ -188,9 +182,22 @@ export default function LoginModule() {
     return <HomeModule />;
   }
 
+  // --- NUEVAS VISTAS PARA DOCUMENTOS LEGALES ---
+  if (currentView === "terms") {
+    return <PagetTU onBack={() => setCurrentView("login")} />;
+  }
+
+  if (currentView === "privacy") {
+    return <PagePriv onBack={() => setCurrentView("login")} />;
+  }
+
+  if (currentView === "support") {
+    return <PageBug onBack={() => setCurrentView("login")} />;
+  }
+
   // Vista Principal de Login
   return (
-    <main className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-4 relative overflow-hidden font-sans selection:bg-rose-500/30">
+    <main className="fixed inset-0 h-[100dvh] w-full bg-black text-white flex flex-col items-center justify-center p-4 overflow-hidden font-sans selection:bg-rose-500/30">
       
       <div 
         className="absolute inset-0 pointer-events-none z-0 opacity-40"
@@ -323,11 +330,29 @@ export default function LoginModule() {
       <div className="absolute bottom-8 flex flex-col items-center gap-3 z-10 opacity-70 hover:opacity-100 transition-opacity">
         <ShieldAlert className="w-3 h-3 text-zinc-600" />
         <div className="flex gap-4 text-[8px] text-zinc-500 font-black uppercase tracking-[0.2em]">
-          <a href="#" className="hover:text-zinc-300 transition-colors">Términos de Uso</a>
+          <button 
+            type="button" 
+            onClick={() => setCurrentView("terms")} 
+            className="hover:text-zinc-300 transition-colors focus:outline-none"
+          >
+            Términos de Uso
+          </button>
           <span className="text-zinc-800">|</span>
-          <a href="#" className="hover:text-zinc-300 transition-colors">Privacidad</a>
+          <button 
+            type="button" 
+            onClick={() => setCurrentView("privacy")} 
+            className="hover:text-zinc-300 transition-colors focus:outline-none"
+          >
+            Privacidad
+          </button>
           <span className="text-zinc-800">|</span>
-          <a href="#" className="hover:text-zinc-300 transition-colors">Soporte Operativo</a>
+          <button 
+            type="button" 
+            onClick={() => setCurrentView("support")} 
+            className="hover:text-zinc-300 transition-colors focus:outline-none"
+          >
+            Soporte Operativo
+          </button>
         </div>
       </div>
     </main>
