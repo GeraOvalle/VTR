@@ -6,7 +6,7 @@ import {
   X, AlertTriangle, Maximize2, Loader2
 } from "lucide-react";
 import { auth, db } from "../../../lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, collection, query, where, getDocs, deleteDoc } from "firebase/firestore";
 import EjecucionRutinaModule from "./ejecucionrutina";
 import AgregarEjerciciosModule from "./agregarejercicios";
 
@@ -16,7 +16,6 @@ import ReportesRutina from "./complementosejecucion/reportesrutina";
 import { useRestTimer } from "../../../context/resttimercontext"; 
 import { useWorkout } from "../../../context/workoutcontext";
 
-// 🔴 IMPORTAMOS EL SERVICIO DE NOTIFICACIONES
 import { enviarNotificacion } from "../../../lib/notificaciones";
 
 interface IniciarRutinaProps {
@@ -41,9 +40,8 @@ export default function IniciarRutinaModule({ rutinaId, rutinaNombre = "Rutina A
   const [ejercicios, setEjercicios] = useState<any[]>([]);
   const [nombreRutina, setNombreRutina] = useState(rutinaNombre);
   
-  // 🔴 NUEVOS ESTADOS DE CONTROL Y AUDITORÍA
   const [asignadaPor, setAsignadaPor] = useState<string | null>(null);
-  const [originalEjercicios, setOriginalEjercicios] = useState<any[]>([]); // Para comparar qué cambió exactamente
+  const [originalEjercicios, setOriginalEjercicios] = useState<any[]>([]);
 
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isActive, setIsActive] = useState(true);
@@ -58,6 +56,42 @@ export default function IniciarRutinaModule({ rutinaId, rutinaNombre = "Rutina A
   const { timeLeft, totalTime, stopTimer } = useRestTimer();
   const { iniciarEntrenamiento } = useWorkout();
 
+  // 🔴 FUNCIÓN DE LIMPIEZA DE HISTORIAL POR CADUCIDAD (Auto-Cleanup)
+  const limpiarHistorialCaducado = async (userId: string, rolUsuario: string) => {
+    try {
+      // Determinamos el límite en meses según el rol
+      const limiteMeses = (rolUsuario === "clasico" || rolUsuario === "gratis") ? 3 : 24; 
+      
+      const fechaLimite = new Date();
+      fechaLimite.setMonth(fechaLimite.getMonth() - limiteMeses);
+
+      const q = query(collection(db, "users", userId, "pesosregistro"));
+      const snap = await getDocs(q);
+
+      let borrados = 0;
+      const promesasBorrado: Promise<void>[] = [];
+
+      snap.forEach((documento) => {
+        const data = documento.data();
+        if (data.fecha) {
+          const fechaRegistro = data.fecha.toDate ? data.fecha.toDate() : new Date(data.fecha);
+          if (fechaRegistro < fechaLimite) {
+            promesasBorrado.push(deleteDoc(doc(db, "users", userId, "pesosregistro", documento.id)));
+            borrados++;
+          }
+        }
+      });
+
+      if (promesasBorrado.length > 0) {
+        await Promise.all(promesasBorrado);
+        console.log(`[Auto-Cleanup] Limpieza de historial: Se borraron ${borrados} registros antiguos (Límite: ${limiteMeses} meses).`);
+      }
+
+    } catch (error) {
+      console.error("[Auto-Cleanup] Error limpiando el historial:", error);
+    }
+  };
+
   // 1. CARGA O AUTO-RECUPERACIÓN
   useEffect(() => {
     const fetchRutinaData = async () => {
@@ -68,17 +102,25 @@ export default function IniciarRutinaModule({ rutinaId, rutinaNombre = "Rutina A
       }
 
       try {
-        // A. OBTENEMOS LA RUTINA ORIGINAL DESDE FIREBASE COMO BASELINE (Fotografía)
+        // A. Obtenemos Rol del Usuario y ejecutamos limpieza de registros silenciosa
+        const userDocRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userDocRef);
+        const rolUsuario = userSnap.exists() ? userSnap.data().rol || "clasico" : "clasico";
+        
+        // Ejecutamos limpieza de fondo (no bloquea la pantalla de carga porque no usamos await intencionalmente)
+        limpiarHistorialCaducado(user.uid, rolUsuario);
+
+        // B. OBTENEMOS LA RUTINA ORIGINAL DESDE FIREBASE COMO BASELINE (Fotografía)
         const docRef = doc(db, "users", user.uid, "rutinas", rutinaId);
-        const docSnap = await getDoc(docRef);
+        const docSnapRutina = await getDoc(docRef);
 
         let fbData: any = null;
-        if (docSnap.exists()) {
-          fbData = docSnap.data();
+        if (docSnapRutina.exists()) {
+          fbData = docSnapRutina.data();
           setOriginalEjercicios(fbData.ejercicios || []); // Guardamos la estructura pura para comparar
         }
 
-        // B. REVISAMOS SI HAY UNA SESIÓN EN CURSO EN LA MEMORIA CACHÉ
+        // C. REVISAMOS SI HAY UNA SESIÓN EN CURSO EN LA MEMORIA CACHÉ
         const sessionKey = `cv_active_session_${user.uid}`;
         const savedSession = localStorage.getItem(sessionKey);
         
@@ -104,7 +146,7 @@ export default function IniciarRutinaModule({ rutinaId, rutinaNombre = "Rutina A
           }
         }
 
-        // C. SI NO HAY SESIÓN ACTIVA, CARGAMOS DESDE FIREBASE
+        // D. SI NO HAY SESIÓN ACTIVA, CARGAMOS DESDE FIREBASE
         if (fbData) {
           setNombreRutina(fbData.nombre || rutinaNombre);
           setEjercicios(fbData.ejercicios || []);
@@ -150,9 +192,8 @@ export default function IniciarRutinaModule({ rutinaId, rutinaNombre = "Rutina A
     localStorage.setItem(sessionKey, JSON.stringify(dataToSave));
   }, [elapsedTime, ejercicios, hasChanges, loading, nombreRutina, rutinaId, conflictSession, asignadaPor]);
 
-  // 🔴 4. MOTOR DETECTOR DE CAMBIOS PARA EL ENTRENADOR
+  // 4. MOTOR DETECTOR DE CAMBIOS PARA EL ENTRENADOR
   const notificarCambiosAlCoach = async () => {
-    // Si no hay entrenador o no hubo cambios, no disparamos nada.
     if (!asignadaPor || !hasChanges) return; 
     
     const user = auth.currentUser;
@@ -370,7 +411,6 @@ export default function IniciarRutinaModule({ rutinaId, rutinaNombre = "Rutina A
               rutinaId={rutinaId}
               asignadaPor={asignadaPor} 
               onExitCompletely={handleDiscardSession}
-              // 🔴 PASAMOS EL DISPARADOR AL BOTÓN DE TERMINAR
               onNotifyCoach={notificarCambiosAlCoach}
              />
             <ReportesRutina />

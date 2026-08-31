@@ -8,7 +8,6 @@ if (!apiKey) {
 
 const genAI = new GoogleGenerativeAI(apiKey);
 
-// Usamos el alias "latest" recomendado para que siempre apunte al modelo activo de tu cuenta
 export const IA_MODEL = genAI.getGenerativeModel({ 
-  model: "gemini-flash-latest", 
+  model: "gemini-3.6-flash", 
 });

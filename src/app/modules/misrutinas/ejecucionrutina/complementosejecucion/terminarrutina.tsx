@@ -4,15 +4,18 @@ import { useState } from "react";
 import { CheckCircle2 } from "lucide-react";
 import GuardarRutina from "./guardarrutina";
 
+// 🔴 IMPORTAMOS EL CONTEXTO DEL TIMER PARA PODER APAGARLO
+import { useRestTimer } from "../../../../context/resttimercontext";
+
 interface TerminarRutinaProps {
   hasChanges: boolean;
   ejercicios: any[];
   elapsedTime: number;
   rutinaNombre: string;
-  rutinaId: string; // <-- AÑADIDO PARA LA BASE DE DATOS
-  asignadaPor?: string | null; // 🔴 Añadido para saber si tiene coach
-  onExitCompletely: () => void; // <-- PARA SALIR AL TERMINAR
-  onNotifyCoach?: () => void; // 🔴 Añadido para notificar al coach
+  rutinaId: string; 
+  asignadaPor?: string | null; 
+  onExitCompletely: () => void; 
+  onNotifyCoach?: () => void; 
 }
 
 export default function TerminarRutina({ 
@@ -27,11 +30,18 @@ export default function TerminarRutina({
 }: TerminarRutinaProps) {
   const [showGuardarModal, setShowGuardarModal] = useState(false);
 
-  // 🔴 FUNCIÓN INTERMEDIA: Avisar al coach y luego salir
+  // 🔴 TRAEMOS LA FUNCIÓN PARA FRENAR EL RELOJ
+  const { stopTimer } = useRestTimer();
+
+  // FUNCIÓN INTERMEDIA: Avisar al coach, apagar timer y salir
   const handleSaveComplete = () => {
     if (onNotifyCoach) {
       onNotifyCoach();
     }
+    
+    // 🔴 APAGAMOS EL TIMER EN SEGUNDO PLANO ANTES DE CERRAR LA PANTALLA
+    stopTimer();
+    
     onExitCompletely();
   };
 
@@ -55,8 +65,8 @@ export default function TerminarRutina({
         elapsedTime={elapsedTime}
         rutinaNombre={rutinaNombre}
         rutinaId={rutinaId}
-        asignadaPor={asignadaPor} // 🔴 Le pasamos la firma a GuardarRutina
-        onSaveComplete={handleSaveComplete} // 🔴 Usamos la función intermedia
+        asignadaPor={asignadaPor} 
+        onSaveComplete={handleSaveComplete} // 🔴 Pasamos la función con el apagado del timer
       />
     </>
   );

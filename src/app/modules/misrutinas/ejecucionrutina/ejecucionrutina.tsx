@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Check, Dumbbell, FileText, PenLine, PlusCircle } from "lucide-react";
+import { Check, Dumbbell, FileText, PenLine, PlusCircle, X, RefreshCw } from "lucide-react";
 import { auth, db } from "../../../lib/firebase";
 import { collection, query, where, getDocs } from "firebase/firestore";
 
@@ -14,6 +14,10 @@ import CheckButton from "./complementosejecucion/check";
 import DescansoTimer from "./complementosejecucion/timer";
 import InstruccionesButton from "./complementosejecucion/instrucciones";
 import AgregarSerieButton from "./complementosejecucion/agregarserie";
+import BorrarSerieWrapper from "./complementosejecucion/borrarseries";
+import OpcionesEjercicio from "./complementosejecucion/opcionesejercicio"; 
+import VisorEjercicios from "../creacionrutina/visorejercicios";
+import ReordenarRutina from "./complementosejecucion/reordenar";
 
 // Importamos el Contexto Global del Reloj
 import { useRestTimer } from "../../../context/resttimercontext";
@@ -25,18 +29,19 @@ interface EjecucionRutinaProps {
   onOpenAgregarEjercicios?: () => void;
 }
 
+const SUPERSERIE_COLORS = ["amber", "cyan", "emerald", "purple", "rose"];
+
 export default function EjecucionRutinaModule({ ejercicios, onUpdateEjercicios, onOpenAgregarEjercicios }: EjecucionRutinaProps) {
   
-  // Extraemos el control del reloj desde la memoria global de la app
   const { activeTimerInfo, setActiveTimerInfo, startTimer, stopTimer, isExtra: isGlobalExtra } = useRestTimer();
-  
-  // Estado para capturar qué imágenes fallan al cargar
   const [failedImages, setFailedImages] = useState<{ [key: string]: boolean }>({});
-  
-  // ESTADO PARA EL HISTORIAL (Pesos Anteriores)
   const [historial, setHistorial] = useState<Record<string, any[]>>({});
 
-  // EFECTO PARA BUSCAR EL HISTORIAL DE CADA EJERCICIO
+  const [showReplaceModal, setShowReplaceModal] = useState(false);
+  const [ejercicioToReplaceIndex, setEjercicioToReplaceIndex] = useState<number | null>(null);
+
+  const [showReordenarModal, setShowReordenarModal] = useState(false);
+
   const ejerciciosIds = ejercicios.map(ej => ej.id).join(',');
 
   useEffect(() => {
@@ -48,10 +53,9 @@ export default function EjecucionRutinaModule({ ejercicios, onUpdateEjercicios, 
       let huboCambios = false;
 
       for (const ej of ejercicios) {
-        if (!ej.id || nuevoHistorial[ej.id]) continue; // Si no tiene ID o ya lo buscamos, lo saltamos
+        if (!ej.id || nuevoHistorial[ej.id]) continue;
 
         try {
-          // Buscamos todos los registros de este ejercicio para este usuario
           const q = query(
             collection(db, "users", user.uid, "pesosregistro"),
             where("ejercicioId", "==", ej.id)
@@ -84,21 +88,32 @@ export default function EjecucionRutinaModule({ ejercicios, onUpdateEjercicios, 
     fetchHistorial();
   }, [ejerciciosIds]); 
 
-  // 🔴 CLONACIÓN PROFUNDA OPTIMIZADA PARA EJECUCIÓN
   const actualizarSerie = (ejercicioIndex: number, serieIndex: number, campo: string, valor: any) => {
-    const copia = JSON.parse(JSON.stringify(ejercicios));
+    const copia = structuredClone(ejercicios);
     copia[ejercicioIndex].series[serieIndex][campo] = valor;
     onUpdateEjercicios(copia);
   };
 
   const actualizarEjercicio = (ejercicioIndex: number, campo: string, valor: any) => {
-    const copia = JSON.parse(JSON.stringify(ejercicios));
+    const copia = structuredClone(ejercicios);
     copia[ejercicioIndex][campo] = valor;
     onUpdateEjercicios(copia);
   };
 
+  const eliminarSerie = (ejercicioIndex: number, serieIndex: number) => {
+    const copia = structuredClone(ejercicios);
+    copia[ejercicioIndex].series.splice(serieIndex, 1);
+    onUpdateEjercicios(copia);
+  };
+
+  const eliminarEjercicio = (index: number) => {
+    const copia = structuredClone(ejercicios);
+    copia.splice(index, 1);
+    onUpdateEjercicios(copia);
+  };
+
   const agregarSerie = (ejercicioIndex: number) => {
-    const copia = JSON.parse(JSON.stringify(ejercicios));
+    const copia = structuredClone(ejercicios);
     if (!copia[ejercicioIndex].series) copia[ejercicioIndex].series = [];
     const seriesActuales = copia[ejercicioIndex].series;
     
@@ -159,8 +174,52 @@ export default function EjecucionRutinaModule({ ejercicios, onUpdateEjercicios, 
     }
   };
 
+  const openReplaceModal = (index: number) => {
+    setEjercicioToReplaceIndex(index);
+    setShowReplaceModal(true);
+  };
+
+  const handleReplaceExercise = (nuevoEjercicioBase: any) => {
+    if (ejercicioToReplaceIndex === null) return;
+    
+    const copia = structuredClone(ejercicios);
+    const ejercicioAntiguo = copia[ejercicioToReplaceIndex];
+    
+    const ejercicioReemplazado = {
+      ...nuevoEjercicioBase, 
+      series: ejercicioAntiguo.series, 
+      descansoSegundos: ejercicioAntiguo.descansoSegundos,
+      nota: ejercicioAntiguo.nota,
+      notaEjecucion: ejercicioAntiguo.notaEjecucion,
+      superserieData: ejercicioAntiguo.superserieData 
+    };
+
+    copia[ejercicioToReplaceIndex] = ejercicioReemplazado;
+    onUpdateEjercicios(copia);
+    setShowReplaceModal(false);
+    setEjercicioToReplaceIndex(null);
+  };
+
+  const handleCrearSuperserie = (indices: number[]) => {
+    const copia = structuredClone(ejercicios);
+    
+    const coloresUsados = copia.map(ej => ej.superserieData?.color).filter(Boolean);
+    const colorDisponible = SUPERSERIE_COLORS.find(c => !coloresUsados.includes(c)) || SUPERSERIE_COLORS[0];
+    
+    const etiqueta = indices.length === 2 ? "Biserie" : indices.length === 3 ? "Triserie" : "Circuito";
+
+    indices.forEach(idx => {
+      copia[idx].superserieData = {
+        color: colorDisponible,
+        etiqueta: etiqueta
+      };
+    });
+
+    onUpdateEjercicios(copia);
+  };
+
   return (
-    <div className="space-y-8 pb-10">
+    <div className="space-y-8 pb-10 relative">
       {ejercicios.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 opacity-50">
           <Dumbbell className="w-10 h-10 mb-4 text-zinc-600" />
@@ -172,17 +231,33 @@ export default function EjecucionRutinaModule({ ejercicios, onUpdateEjercicios, 
       ) : (
         ejercicios.map((ej, index) => {
           const hasFailed = failedImages[ej.id || index];
-          
-          // Extraemos el historial de este ejercicio
           const seriesAnteriores = historial[ej.id] || [];
 
+          const superData = ej.superserieData; 
+          
+          let colorClassBase = "border-zinc-800/80 bg-transparent";
+          let colorEtiqueta = "";
+          
+          if (superData) {
+            switch(superData.color) {
+              case 'amber': colorClassBase = "border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.1)] bg-amber-500/5"; colorEtiqueta = "bg-amber-500 text-black"; break;
+              case 'cyan': colorClassBase = "border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.1)] bg-cyan-500/5"; colorEtiqueta = "bg-cyan-500 text-black"; break;
+              case 'emerald': colorClassBase = "border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.1)] bg-emerald-500/5"; colorEtiqueta = "bg-emerald-500 text-black"; break;
+              case 'purple': colorClassBase = "border-purple-500/50 shadow-[0_0_15px_rgba(168,85,247,0.1)] bg-purple-500/5"; colorEtiqueta = "bg-purple-500 text-white"; break;
+              case 'rose': colorClassBase = "border-rose-500/50 shadow-[0_0_15px_rgba(244,63,94,0.1)] bg-rose-500/5"; colorEtiqueta = "bg-rose-500 text-white"; break;
+            }
+          }
+
           return (
-            <div key={`${ej.id}-${index}`} className="bg-transparent border border-zinc-800/80 rounded-2xl overflow-hidden flex flex-col">
+            <div key={`${ej.id}-${index}`} className={`rounded-2xl overflow-visible flex flex-col relative transition-all border ${colorClassBase}`}>
               
-              {/* CABECERA CON IMAGEN Y BOTÓN DE INSTRUCCIONES */}
-              <div className="p-3 sm:p-4 bg-zinc-900/30 flex items-center gap-3 relative">
-                
-                {/* 🔴 CONTENEDOR IMAGEN CON ETIQUETA PROPIO */}
+              {superData && (
+                <div className={`absolute top-0 right-0 px-3 py-1 rounded-bl-xl rounded-tr-xl text-[9px] font-black uppercase tracking-widest z-10 shadow-lg ${colorEtiqueta}`}>
+                  {superData.etiqueta}
+                </div>
+              )}
+
+              <div className="p-3 sm:p-4 bg-zinc-900/30 flex items-center gap-3 relative mt-2 sm:mt-0 rounded-t-2xl">
                 <div className="relative w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center border border-zinc-700 shrink-0 overflow-hidden">
                   {ej.gifUrl && !hasFailed ? (
                     <img 
@@ -199,7 +274,7 @@ export default function EjecucionRutinaModule({ ejercicios, onUpdateEjercicios, 
                   )}
                 </div>
                 
-                <div className="flex-1">
+                <div className="flex-1 pr-12 sm:pr-0">
                   <h3 className="text-sm font-black text-white uppercase tracking-wider leading-tight">
                     {ej.nombreEs || ej.nombre}
                   </h3>
@@ -208,15 +283,25 @@ export default function EjecucionRutinaModule({ ejercicios, onUpdateEjercicios, 
                   </p>
                 </div>
 
-                <InstruccionesButton ejercicio={ej} />
+                <div className="flex items-center gap-1.5">
+                  <InstruccionesButton ejercicio={ej} />
+                  
+                  <OpcionesEjercicio 
+                    ejercicioIndex={index}
+                    ejerciciosRutina={ejercicios}
+                    onBorrar={() => eliminarEjercicio(index)}
+                    onReemplazar={() => openReplaceModal(index)}
+                    onCrearSuperserie={handleCrearSuperserie}
+                    onReordenar={() => setShowReordenarModal(true)} 
+                  />
+                </div>
               </div>
 
-              {/* ÁREA DE NOTAS */}
               <div className="px-3 sm:px-4 py-2.5 flex flex-col gap-2 border-b border-zinc-800/50 bg-black/20">
                 {ej.nota && (
                   <div className="flex items-start gap-2 bg-rose-500/5 px-3 py-2 rounded-md">
                     <FileText className="w-3.5 h-3.5 text-rose-500 mt-0.5 shrink-0" />
-                    <p className="text-[11px] text-rose-200/90 leading-relaxed font-medium">
+                    <p className="text-[11px] text-rose-200/90 leading-relaxed font-medium whitespace-pre-wrap">
                       {ej.nota}
                     </p>
                   </div>
@@ -239,9 +324,7 @@ export default function EjecucionRutinaModule({ ejercicios, onUpdateEjercicios, 
                 </div>
               </div>
 
-              <div className="p-2 sm:p-4 bg-transparent">
-                
-                {/* TIMER GENERAL DEL EJERCICIO */}
+              <div className="p-2 sm:p-4 bg-transparent overflow-visible rounded-b-2xl">
                 <div className="mb-3 px-1">
                   <DescansoTimer 
                     descansoGeneral={ej.descansoSegundos || 90}
@@ -251,15 +334,16 @@ export default function EjecucionRutinaModule({ ejercicios, onUpdateEjercicios, 
                   />
                 </div>
 
-                {/* ENCABEZADOS DE LA TABLA */}
+                {/* 🔴 HEADER CON ANCHOS AJUSTADOS */}
                 <div className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-2 px-1">
-                  <div className="w-8 text-center shrink-0">Set</div>
-                  <div className="flex-1 min-w-[55px] text-center shrink-0 text-white">Objetivo</div>
-                  <div className="flex-1 min-w-[55px] text-center shrink-0 text-emerald-500/70 border-x border-zinc-800/50 drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]">Anterior</div>
-                  <div className="w-[52px] sm:w-[64px] text-center shrink-0">Peso</div>
-                  <div className="w-[48px] sm:w-[56px] text-center shrink-0">Reps</div>
-                  <div className="w-[52px] sm:w-[64px] text-center shrink-0">RPE</div>
-                  <div className="w-9 text-center shrink-0"><Check className="w-4 h-4 mx-auto" /></div>
+                  <div className="w-7 sm:w-8 text-center shrink-0">Set</div>
+                  <div className="flex-1 min-w-[42px] text-center shrink-0 text-white">Objetivo</div>
+                  <div className="flex-1 min-w-[42px] text-center shrink-0 text-emerald-500/70 border-x border-zinc-800/50 drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]">Anterior</div>
+                  <div className="w-[72px] sm:w-[86px] text-center shrink-0">Peso</div>
+                  <div className="w-[44px] sm:w-[56px] text-center shrink-0">Reps</div>
+                  <div className="w-[44px] sm:w-[56px] text-center shrink-0">RPE</div>
+                  <div className="w-8 sm:w-9 text-center shrink-0"><Check className="w-4 h-4 mx-auto" /></div>
+                  <div className="w-8 hidden sm:block shrink-0"></div> 
                 </div>
 
                 <div className="space-y-1">
@@ -267,115 +351,119 @@ export default function EjecucionRutinaModule({ ejercicios, onUpdateEjercicios, 
                     const numSerieNormal = obtenerNumeroSerieNormal(ej.series, sIdx);
                     const isCompletada = serie.completado;
 
-                    // DATOS DE LA SERIE ANTERIOR
                     const serieAnterior = seriesAnteriores[sIdx];
                     const prevPeso = serieAnterior?.pesoReal || "-";
                     const prevReps = serieAnterior?.repsReal || "-";
                     const prevRir = serieAnterior?.rir || "-";
 
                     return (
-                      <div key={sIdx} className="flex flex-col group">
-                        <div className={`flex items-center gap-1 p-1 rounded-lg transition-all ${
-                          isCompletada ? "bg-emerald-500/10" : "bg-transparent hover:bg-zinc-900/30"
-                        }`}>
+                      <BorrarSerieWrapper 
+                        key={sIdx} 
+                        onDelete={() => eliminarSerie(index, sIdx)}
+                      >
+                        <div className="flex flex-col group w-full bg-black/40 rounded-lg">
                           
-                          {/* TIPO DE SERIE */}
-                          <div className="w-8 flex justify-center shrink-0">
-                            <TipoSerie 
-                              tipoActual={serie.tipo}
-                              numeroNormal={numSerieNormal}
-                              onTipoChange={(val) => actualizarSerie(index, sIdx, "tipo", val)}
-                            />
-                          </div>
-
-                          {/* OBJETIVO */}
-                          <div className="flex-1 flex flex-col items-center justify-center shrink-0 min-w-[55px] px-1">
-                            <span className={`text-[10px] font-mono font-bold truncate max-w-[55px] text-center ${isCompletada ? "text-emerald-500/70" : "text-white"}`}>
-                              {serie.peso && (
-                                <>
-                                  {serie.peso} <span className="text-[8px] text-zinc-500/60">x</span>{" "}
-                                </>
-                              )}
-                              {serie.repsTipo === "fijas" ? serie.reps : `${serie.minReps}-${serie.maxReps}`}
-                            </span>
+                          <div className={`flex items-center gap-1 p-1 sm:p-1.5 rounded-lg transition-all ${
+                            isCompletada ? "bg-emerald-500/10" : "bg-transparent hover:bg-zinc-900/30"
+                          }`}>
                             
-                            {(serie.rir || serie.descansoExtra > 0) ? (
-                              <div className="flex items-center gap-1 mt-0.5">
-                                {serie.rir && <span className="text-[7px] font-bold uppercase tracking-widest text-zinc-400">@ {serie.rir}</span>}
-                                {serie.descansoExtra > 0 && <span className="text-[7px] font-bold uppercase tracking-widest text-amber-500">+{serie.descansoExtra}s</span>}
-                              </div>
-                            ) : (
-                              <span className="text-[7px] font-bold uppercase tracking-widest mt-0.5 text-zinc-600">
-                                -
+                            {/* SET */}
+                            <div className="w-7 sm:w-8 flex justify-center shrink-0">
+                              <TipoSerie 
+                                tipoActual={serie.tipo}
+                                numeroNormal={numSerieNormal}
+                                onTipoChange={(val) => actualizarSerie(index, sIdx, "tipo", val)}
+                              />
+                            </div>
+
+                            {/* OBJETIVO */}
+                            <div className="flex-1 flex flex-col items-center justify-center shrink-0 min-w-[42px] px-0.5 pointer-events-none">
+                              <span className={`text-[10px] font-mono font-bold truncate max-w-[55px] text-center ${isCompletada ? "text-emerald-500/70" : "text-white"}`}>
+                                {serie.peso && (
+                                  <>
+                                    {serie.peso} <span className="text-[8px] text-zinc-500/60">x</span>{" "}
+                                  </>
+                                )}
+                                {serie.repsTipo === "fijas" ? serie.reps : `${serie.minReps}-${serie.maxReps}`}
                               </span>
-                            )}
+                              
+                              {(serie.rir || serie.descansoExtra > 0) ? (
+                                <div className="flex items-center gap-1 mt-0.5">
+                                  {serie.rir && <span className="text-[7px] font-bold uppercase tracking-widest text-zinc-400">@ {serie.rir}</span>}
+                                  {serie.descansoExtra > 0 && <span className="text-[7px] font-bold uppercase tracking-widest text-amber-500">+{serie.descansoExtra}s</span>}
+                                </div>
+                              ) : (
+                                <span className="text-[7px] font-bold uppercase tracking-widest mt-0.5 text-zinc-600">
+                                  -
+                                </span>
+                              )}
+                            </div>
+
+                            {/* ANTERIOR */}
+                            <div className="flex-1 flex flex-col items-center justify-center shrink-0 min-w-[42px] px-0.5 border-x border-zinc-800/30 pointer-events-none">
+                              <span className={`text-[10px] font-mono font-bold truncate max-w-[55px] text-center ${serieAnterior ? 'text-emerald-500/80 drop-shadow-[0_0_5px_rgba(16,185,129,0.3)]' : 'text-zinc-600'}`}>
+                                {prevPeso} <span className="text-[8px] text-zinc-500/50">x</span> {prevReps}
+                              </span>
+                              <span className={`text-[7px] font-bold uppercase tracking-widest mt-0.5 ${serieAnterior && prevRir !== "-" ? 'text-emerald-600/70' : 'text-zinc-700'}`}>
+                                @ {prevRir}
+                              </span>
+                            </div>
+
+                            {/* 🔴 PESO */}
+                            <div className="w-[72px] sm:w-[86px] shrink-0">
+                              <PesoInput 
+                                pesoReal={serie.pesoReal || ""}
+                                onPesoChange={(val) => actualizarSerie(index, sIdx, "pesoReal", val)}
+                                isCompletada={isCompletada}
+                              />
+                            </div>
+
+                            {/* REPS */}
+                            <div className="w-[44px] sm:w-[56px] shrink-0">
+                              <RepsInput 
+                                repsReal={serie.repsReal || ""}
+                                onRepsChange={(val) => actualizarSerie(index, sIdx, "repsReal", val)}
+                                isCompletada={isCompletada}
+                              />
+                            </div>
+
+                            {/* RPE */}
+                            <div className="w-[44px] sm:w-[56px] shrink-0">
+                              <RpeInput 
+                                rirActual={serie.rir || ""}
+                                onRirChange={(val) => actualizarSerie(index, sIdx, "rir", val)}
+                                isCompletada={isCompletada}
+                              />
+                            </div>
+
+                            {/* CHECK */}
+                            <div className="w-8 sm:w-9 flex justify-center shrink-0">
+                              <CheckButton 
+                                isCompletada={isCompletada}
+                                pesoReal={serie.pesoReal || ""}
+                                repsReal={serie.repsReal || ""}
+                                onToggleComplete={() => handleToggleComplete(index, sIdx, isCompletada)}
+                              />
+                            </div>
+
                           </div>
 
-                          {/* HISTORIAL ANTERIOR */}
-                          <div className="flex-1 flex flex-col items-center justify-center shrink-0 min-w-[55px] px-1 border-x border-zinc-800/30">
-                            <span className={`text-[10px] font-mono font-bold truncate max-w-[55px] text-center ${serieAnterior ? 'text-emerald-500/80 drop-shadow-[0_0_5px_rgba(16,185,129,0.3)]' : 'text-zinc-600'}`}>
-                              {prevPeso} <span className="text-[8px] text-zinc-500/50">x</span> {prevReps}
-                            </span>
-                            <span className={`text-[7px] font-bold uppercase tracking-widest mt-0.5 ${serieAnterior && prevRir !== "-" ? 'text-emerald-600/70' : 'text-zinc-700'}`}>
-                              @ {prevRir}
-                            </span>
-                          </div>
-
-                          {/* INPUT: PESO REAL */}
-                          <div className="w-[52px] sm:w-[64px] shrink-0">
-                            <PesoInput 
-                              pesoReal={serie.pesoReal || ""}
-                              onPesoChange={(val) => actualizarSerie(index, sIdx, "pesoReal", val)}
-                              isCompletada={isCompletada}
+                          <div className="px-1 mt-0.5 mb-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity [&:has(.bg-amber-500)]:opacity-100 [&:has(select)]:opacity-100 [&:has(button)]:opacity-100">
+                            <DescansoTimer 
+                              descansoGeneral={0}
+                              descansoExtra={serie.descansoExtra || 0}
+                              isActive={activeTimerInfo?.ejIdx === index && activeTimerInfo?.sIdx === sIdx && isGlobalExtra}
+                              isExtra={true}
+                              onTimeChange={(val) => actualizarSerie(index, sIdx, "descansoExtra", val)}
                             />
                           </div>
-
-                          {/* INPUT: REPS REALES */}
-                          <div className="w-[48px] sm:w-[56px] shrink-0">
-                            <RepsInput 
-                              repsReal={serie.repsReal || ""}
-                              onRepsChange={(val) => actualizarSerie(index, sIdx, "repsReal", val)}
-                              isCompletada={isCompletada}
-                            />
-                          </div>
-
-                          {/* INPUT: RPE / RIR */}
-                          <div className="w-[52px] sm:w-[64px] shrink-0">
-                            <RpeInput 
-                              rirActual={serie.rir || ""}
-                              onRirChange={(val) => actualizarSerie(index, sIdx, "rir", val)}
-                              isCompletada={isCompletada}
-                            />
-                          </div>
-
-                          {/* CHECKBUTTON */}
-                          <div className="w-9 flex justify-center shrink-0">
-                            <CheckButton 
-                              isCompletada={isCompletada}
-                              pesoReal={serie.pesoReal || ""}
-                              repsReal={serie.repsReal || ""}
-                              onToggleComplete={() => handleToggleComplete(index, sIdx, isCompletada)}
-                            />
-                          </div>
-
+                          
                         </div>
-
-                        <div className="px-1 mt-0.5 mb-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity [&:has(.bg-amber-500)]:opacity-100 [&:has(select)]:opacity-100 [&:has(button)]:opacity-100">
-                          <DescansoTimer 
-                            descansoGeneral={0}
-                            descansoExtra={serie.descansoExtra || 0}
-                            isActive={activeTimerInfo?.ejIdx === index && activeTimerInfo?.sIdx === sIdx && isGlobalExtra}
-                            isExtra={true}
-                            onTimeChange={(val) => actualizarSerie(index, sIdx, "descansoExtra", val)}
-                          />
-                        </div>
-                        
-                      </div>
+                      </BorrarSerieWrapper>
                     );
                   })}
                 </div>
 
-                {/* BOTÓN DE AÑADIR SERIE AL FINAL */}
                 <div className="px-1 mt-1">
                   <AgregarSerieButton onAdd={() => agregarSerie(index)} />
                 </div>
@@ -386,7 +474,6 @@ export default function EjecucionRutinaModule({ ejercicios, onUpdateEjercicios, 
         })
       )}
 
-      {/* BOTÓN GIGANTE PARA AÑADIR UN NUEVO EJERCICIO A LA SESIÓN */}
       {onOpenAgregarEjercicios && (
         <button 
           onClick={onOpenAgregarEjercicios}
@@ -404,6 +491,55 @@ export default function EjecucionRutinaModule({ ejercicios, onUpdateEjercicios, 
             </span>
           </div>
         </button>
+      )}
+
+      {showReplaceModal && ejercicioToReplaceIndex !== null && (
+        <div className="fixed inset-0 z-[100] flex flex-col bg-black/90 backdrop-blur-md animate-in fade-in duration-200">
+          
+          <div className="flex items-center justify-between p-4 border-b border-zinc-800 bg-zinc-950 shrink-0">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-500">
+                <RefreshCw className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-xs font-black text-white uppercase tracking-widest">Sustituir Ejercicio</h3>
+                <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
+                  Estás reemplazando: <span className="text-cyan-400">{ejercicios[ejercicioToReplaceIndex].nombreEs || ejercicios[ejercicioToReplaceIndex].nombre}</span>
+                </p>
+              </div>
+            </div>
+            
+            <button 
+              onClick={() => {
+                setShowReplaceModal(false);
+                setEjercicioToReplaceIndex(null);
+              }} 
+              className="p-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-full transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-hidden p-2 sm:p-6">
+            <VisorEjercicios 
+              mode="replace"
+              ejercicioOriginal={ejercicios[ejercicioToReplaceIndex]}
+              onAddExercise={handleReplaceExercise}
+            />
+          </div>
+
+        </div>
+      )}
+
+      {showReordenarModal && (
+        <ReordenarRutina 
+          ejercicios={ejercicios}
+          onSave={(nuevaLista) => {
+            onUpdateEjercicios(nuevaLista);
+            setShowReordenarModal(false);
+          }}
+          onClose={() => setShowReordenarModal(false)}
+        />
       )}
 
     </div>

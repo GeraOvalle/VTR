@@ -2,6 +2,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getAnalytics, isSupported } from "firebase/analytics";
+import { getStorage } from "firebase/storage";
 
 // Configuración de tu proyecto en Firebase
 const firebaseConfig = {
@@ -30,5 +31,5 @@ if (typeof window !== "undefined") {
     }
   });
 }
-
+export const storage = getStorage(app);
 export { app, auth, db, analytics };

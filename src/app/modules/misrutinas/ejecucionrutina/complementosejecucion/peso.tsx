@@ -56,21 +56,29 @@ export default function PesoInput({ pesoReal, onPesoChange, isCompletada }: Peso
 
   return (
     <div className="relative flex flex-col items-center w-full">
-      <div className="relative flex items-center w-full">
+      
+      {/* CONTENEDOR ULTRA-COMPACTO */}
+      <div className={`relative flex items-stretch w-full bg-zinc-900 border rounded-md transition-colors overflow-hidden ${
+        isCompletada ? "border-emerald-500/30 bg-emerald-950/20" : 
+        esAnormal ? "border-amber-500/50" : "border-zinc-700 focus-within:border-rose-500"
+      }`}>
         <input 
           type="text" 
           inputMode="decimal"
           placeholder="-" 
           value={pesoReal}
           onChange={(e) => handleInputChange(e, onPesoChange)}
-          className={`w-full bg-zinc-900 border rounded-lg py-2.5 pl-2 pr-8 text-xs text-center focus:outline-none font-mono transition-colors ${
-            isCompletada ? "border-emerald-500/30 text-emerald-400 bg-emerald-950/20" : 
-            esAnormal ? "border-amber-500/50 text-amber-500" : "border-zinc-700 text-white focus:border-rose-500"
+          className={`w-full bg-transparent py-2 px-1 sm:px-2 text-[11px] sm:text-xs text-center focus:outline-none font-mono transition-colors ${
+            isCompletada ? "text-emerald-400" : esAnormal ? "text-amber-500" : "text-white"
           }`}
         />
         <button 
           onClick={toggleUnidad}
-          className="absolute right-2 text-[9px] text-zinc-500 font-bold hover:text-white transition-colors"
+          className={`px-1.5 sm:px-2 flex items-center justify-center border-l text-[8px] font-black uppercase tracking-wider transition-colors shrink-0 ${
+            isCompletada ? "border-emerald-500/30 text-emerald-500 hover:text-emerald-300 bg-emerald-900/30" : 
+            esAnormal ? "border-amber-500/30 text-amber-500 hover:text-amber-300 bg-amber-900/30" : 
+            "border-zinc-700 text-zinc-500 hover:text-white bg-zinc-800/50"
+          }`}
         >
           {unidad}
         </button>

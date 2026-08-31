@@ -2,9 +2,13 @@
 
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { X, Clock, TrendingUp, CheckCircle2, Save, HardDrive, Dumbbell, Code2, Loader2, FileText, List, ChevronDown, MessageSquareText, AlertTriangle, WifiOff } from "lucide-react";
-import { auth, db } from "../../../../lib/firebase";
+import { X, Clock, TrendingUp, CheckCircle2, Save, HardDrive, Dumbbell, Code2, Loader2, FileText, List, ChevronDown, MessageSquareText, AlertTriangle, WifiOff, Trophy, Flame } from "lucide-react";
+// 🔴 1. IMPORTAMOS STORAGE Y SUS FUNCIONES
+import { auth, db, storage } from "../../../../lib/firebase";
 import { doc, getDoc, collection, writeBatch, serverTimestamp } from "firebase/firestore";
+import { ref, uploadString, getDownloadURL } from "firebase/storage"; 
+
+import LogrosRutina from "./logrosrutina";
 
 interface GuardarRutinaProps {
   isOpen: boolean;
@@ -13,11 +17,10 @@ interface GuardarRutinaProps {
   elapsedTime: number; 
   rutinaNombre: string;
   rutinaId: string;
-  asignadaPor?: string | null; // 🔴 AÑADIDO: Recibe la firma del entrenador
+  asignadaPor?: string | null; 
   onSaveComplete: () => void;
 }
 
-// CLASE CUSTOM PARA SCROLLBARS ESTÉTICOS
 const customScrollbar = "[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-zinc-800 hover:[&::-webkit-scrollbar-thumb]:bg-rose-500/50 [&::-webkit-scrollbar-thumb]:rounded-full";
 
 export default function GuardarRutina({ isOpen, onClose, ejercicios, elapsedTime, rutinaNombre, rutinaId, asignadaPor, onSaveComplete }: GuardarRutinaProps) {
@@ -25,22 +28,21 @@ export default function GuardarRutina({ isOpen, onClose, ejercicios, elapsedTime
   const [isSaving, setIsSaving] = useState(false);
   const [customError, setCustomError] = useState<{ text: string, type: 'error' | 'offline' } | null>(null);
   
-  // Autenticación y Rol
   const [rol, setRol] = useState<string>("clasico");
+  const [activeTab, setActiveTab] = useState<'resumen' | 'logros'>('resumen');
 
-  // Vistas Admin
+  const [postFotos, setPostFotos] = useState<string[]>([]);
+  const [postTexto, setPostTexto] = useState("");
+
   const [showAdminView, setShowAdminView] = useState(false);
   const [adminTab, setAdminTab] = useState<'json' | 'historial' | 'ejercicios'>('json');
   
-  // Estados de tiempo editable
   const [horas, setHoras] = useState(0);
   const [minutos, setMinutos] = useState(0);
   const [segundos, setSegundos] = useState(0);
 
-  // Estados para los pop-ups de listas deslizables de tiempo
   const [activeTimePicker, setActiveTimePicker] = useState<'horas' | 'minutos' | 'segundos' | null>(null);
 
-  // Estados de métricas calculadas
   const [seriesCompletadas, setSeriesCompletadas] = useState(0);
   const [seriesTotales, setSeriesTotales] = useState(0);
   const [volumenTotalKg, setVolumenTotalKg] = useState(0);
@@ -82,18 +84,18 @@ export default function GuardarRutina({ isOpen, onClose, ejercicios, elapsedTime
       setSeriesTotales(totalS);
       setSeriesCompletadas(compS);
       setVolumenTotalKg(volKg);
+
+      setActiveTab('resumen');
+      setPostFotos([]);
+      setPostTexto("");
     }
-  }, [isOpen, elapsedTime, ejercicios]);
+  }, [isOpen]); 
 
   if (!isOpen || !mounted) return null;
 
   const volumenVisual = isLbsView ? (volumenTotalKg * 2.20462) : volumenTotalKg;
   const unidadTexto = isLbsView ? "LBS" : "KG";
   const tiempoFinalSegundos = (horas * 3600) + (minutos * 60) + segundos;
-
-  // =====================================================================
-  // 1. PREPARACIÓN DE DATOS PARA INYECCIÓN
-  // =====================================================================
 
   const payloadHistorialGeneral = {
     rutinaIdOriginal: rutinaId,
@@ -102,7 +104,7 @@ export default function GuardarRutina({ isOpen, onClose, ejercicios, elapsedTime
     volumenTotalKg: volumenTotalKg,
     seriesCompletadas: seriesCompletadas,
     ejercicios: ejercicios,
-    asignadaPor: asignadaPor || null // 🔴 Inyectamos la firma del coach
+    asignadaPor: asignadaPor || null
   };
 
   const payloadsPesosRegistro = ejercicios.filter(ej => ej.series?.some((s:any) => s.completado)).map(ej => {
@@ -112,7 +114,7 @@ export default function GuardarRutina({ isOpen, onClose, ejercicios, elapsedTime
       ejercicioId: ej.id,
       ejercicioNombre: ej.nombreEs || ej.nombre,
       series: seriesHechas,
-      asignadaPor: asignadaPor || null // 🔴 Inyectamos la firma del coach en cada ejercicio
+      asignadaPor: asignadaPor || null 
     };
   });
 
@@ -129,7 +131,7 @@ export default function GuardarRutina({ isOpen, onClose, ejercicios, elapsedTime
   }));
 
   // =====================================================================
-  // 2. MOTOR DE GUARDADO (CON MODO OFFLINE / CACHÉ)
+  // 2. MOTOR DE GUARDADO CON STORAGE INTEGRADO
   // =====================================================================
   const handleSave = async (actualizarPlantilla: boolean) => {
     const user = auth.currentUser;
@@ -142,9 +144,30 @@ export default function GuardarRutina({ isOpen, onClose, ejercicios, elapsedTime
         throw new Error("offline");
       }
 
+      // 🔴 PASO A: SUBIR FOTOS AL STORAGE PRIMERO
+      let urlsFotosComunidad: string[] = [];
+      
+      if (postFotos.length > 0) {
+        // Ejecutamos las subidas en paralelo para no hacer esperar al usuario
+        const promesasSubida = postFotos.map(async (fotoBase64, index) => {
+          // Ruta: comunidad_fotos/ID_DEL_USUARIO/timestamp_index.webp
+          const rutaStorage = `comunidad_fotos/${user.uid}/${Date.now()}_${index}.webp`;
+          const fotoRef = ref(storage, rutaStorage);
+          
+          // Subimos usando 'data_url' porque nuestro canvas generó un Base64 completo
+          await uploadString(fotoRef, fotoBase64, 'data_url');
+          
+          // Obtenemos y retornamos el enlace público generado por Firebase
+          const downloadUrl = await getDownloadURL(fotoRef);
+          return downloadUrl;
+        });
+
+        urlsFotosComunidad = await Promise.all(promesasSubida);
+      }
+
+      // PASO B: GUARDAR DATOS EN FIRESTORE (BATCH)
       const batch = writeBatch(db);
 
-      // A) GUARDAR EN HISTORIAL (rutinascompletadas)
       const rutinasCompletadasRef = collection(db, "users", user.uid, "rutinascompletadas");
       const nuevoHistorialDoc = doc(rutinasCompletadasRef);
       batch.set(nuevoHistorialDoc, {
@@ -152,7 +175,6 @@ export default function GuardarRutina({ isOpen, onClose, ejercicios, elapsedTime
         fecha: serverTimestamp() 
       });
 
-      // B) GUARDAR EN REGISTRO DE PESOS (Analíticas por ejercicio)
       payloadsPesosRegistro.forEach(payloadEj => {
         const registroRef = doc(collection(db, "users", user.uid, "pesosregistro"));
         batch.set(registroRef, {
@@ -162,15 +184,13 @@ export default function GuardarRutina({ isOpen, onClose, ejercicios, elapsedTime
         });
       });
 
-      // C) ACTUALIZAR PLANTILLA MAESTRA (Si lo pide el usuario)
       if (actualizarPlantilla) {
         const plantillaRef = doc(db, "users", user.uid, "rutinas", rutinaId);
         batch.update(plantillaRef, {
           ejercicios: payloadPlantillaLimpia,
-          hasChanges: false // Reseteamos la alerta de "Modificada" si guarda los cambios oficiales
+          hasChanges: false 
         });
       } else {
-        // Si solo guardó historial y la rutina es asignada, mantenemos la bandera hasChanges=true
         if (asignadaPor) {
           const plantillaRef = doc(db, "users", user.uid, "rutinas", rutinaId);
           batch.update(plantillaRef, {
@@ -179,7 +199,6 @@ export default function GuardarRutina({ isOpen, onClose, ejercicios, elapsedTime
         }
       }
 
-      // 🔴 D) REGISTRO GLOBAL DE PROGRESO (Para que el coach lo cuente)
       if (asignadaPor) {
         const progressRef = doc(collection(db, "progress"));
         batch.set(progressRef, {
@@ -190,26 +209,39 @@ export default function GuardarRutina({ isOpen, onClose, ejercicios, elapsedTime
         });
       }
 
+      // 🔴 PASO C: PUBLICACIÓN EN COMUNIDAD (Usando URLs reales)
+      if (postTexto.trim() || urlsFotosComunidad.length > 0) {
+        const feedRef = doc(collection(db, "comunidad_feed"));
+        batch.set(feedRef, {
+          usuarioUid: user.uid,
+          usuarioNombre: user.displayName || "Usuario VTR",
+          rutinaCompletadaId: nuevoHistorialDoc.id,
+          rutinaNombre: rutinaNombre,
+          texto: postTexto.trim(),
+          fotos: urlsFotosComunidad, // <--- Guardamos solo los enlaces cortos
+          fecha: serverTimestamp(),
+          likes: 0,
+          comentarios: 0
+        });
+      }
+
       await batch.commit();
       
-      // Limpiamos la caché de la sesión activa
       localStorage.removeItem(`cv_active_session_${user.uid}`);
       onSaveComplete(); 
       
     } catch (error: any) {
       console.error("Error guardando:", error);
       
-      // MODO OFFLINE CACHÉ: Si no hay red o el servidor falló
       const isOfflineError = error.message === "offline" || error.code === 'unavailable' || !navigator.onLine;
       
-      // Guardamos todo el paquete en una cola de pendientes
       const pendingData = {
         rutinaId,
         actualizarPlantilla,
         payloadHistorialGeneral,
         payloadsPesosRegistro,
         payloadPlantillaLimpia,
-        asignadaPor, // 🔴 Guardamos para inyectar en progress al sincronizar
+        asignadaPor, 
         timestamp: new Date().toISOString()
       };
 
@@ -221,9 +253,9 @@ export default function GuardarRutina({ isOpen, onClose, ejercicios, elapsedTime
       localStorage.removeItem(`cv_active_session_${user.uid}`);
 
       if (isOfflineError) {
-        setCustomError({ text: "Sin Internet. Guardado en memoria. Se sincronizará automáticamente.", type: "offline" });
+        setCustomError({ text: "Sin internet. Entrenamiento guardado en memoria. Se sincronizará automáticamente.", type: "offline" });
       } else {
-        setCustomError({ text: "Error en los servidores. Guardado localmente por seguridad.", type: "error" });
+        setCustomError({ text: "Error en servidores. Guardado localmente por seguridad.", type: "error" });
       }
 
       setTimeout(() => {
@@ -238,9 +270,6 @@ export default function GuardarRutina({ isOpen, onClose, ejercicios, elapsedTime
 
   const generarOpciones = (max: number) => Array.from({ length: max + 1 }, (_, i) => i);
 
-  // =====================================================================
-  // 3. VISTA TERMINAL (MODO ADMIN MULTI-PESTAÑA) - SIN CAMBIOS
-  // =====================================================================
   if (showAdminView) {
     return createPortal(
       <div className="fixed inset-0 z-[500] bg-black/95 p-4 flex flex-col overflow-hidden animate-in fade-in duration-200">
@@ -405,13 +434,9 @@ export default function GuardarRutina({ isOpen, onClose, ejercicios, elapsedTime
     );
   }
 
-  // =====================================================================
-  // 4. VISTA NORMAL DEL USUARIO
-  // =====================================================================
   const modalContent = (
-    <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 sm:p-6 bg-black/90 backdrop-blur-md animate-in fade-in duration-200">
       
-      {/* 🔴 ALERTA FLOTANTE CUSTOM DE OFFLINE/ERROR */}
       {customError && (
         <div className={`absolute top-6 left-1/2 -translate-x-1/2 px-5 py-3 rounded-full text-[11px] font-black uppercase tracking-widest z-[600] flex items-center gap-3 animate-in slide-in-from-top-10 shadow-2xl ${
           customError.type === 'offline' ? 'bg-amber-500 text-black shadow-[0_0_40px_rgba(245,158,11,0.5)]' : 'bg-rose-500 text-white shadow-[0_0_40px_rgba(244,63,94,0.5)]'
@@ -422,161 +447,208 @@ export default function GuardarRutina({ isOpen, onClose, ejercicios, elapsedTime
         </div>
       )}
 
-      {/* MODAL MÁS GRANDE (max-w-xl) */}
-      <div className="bg-zinc-950 border border-rose-500/30 rounded-3xl w-full max-w-xl flex flex-col shadow-[0_0_80px_rgba(244,63,94,0.15)] overflow-hidden">
+      {/* 🔴 CAMBIO CLAVE: Limitamos el alto a max-h-[92dvh] y usamos flex-col para controlar el overflow interno */}
+      <div className="bg-zinc-950 border border-rose-500/30 rounded-3xl w-full max-w-xl flex flex-col shadow-[0_0_80px_rgba(244,63,94,0.15)] overflow-hidden animate-in zoom-in-95 max-h-[92dvh] sm:max-h-[90vh]">
         
-        <div className="p-6 border-b border-zinc-800/80 flex justify-between items-center bg-rose-500/5 relative">
-          
+        {/* HEADER (FIJO) */}
+        <div className="relative p-6 sm:p-8 text-center border-b border-zinc-800 bg-gradient-to-b from-rose-500/10 to-transparent shrink-0">
           {rol === "admin" && (
             <button 
               onClick={() => setShowAdminView(true)}
-              className="absolute top-2 right-2 text-[8px] font-bold tracking-widest bg-cyan-500/10 text-cyan-500 px-2 py-1 rounded border border-cyan-500/30 hover:bg-cyan-500 hover:text-black transition-all flex items-center gap-1 z-10"
+              className="absolute top-4 left-4 text-[8px] font-bold tracking-widest bg-cyan-500/10 text-cyan-500 px-2 py-1 rounded border border-cyan-500/30 hover:bg-cyan-500 hover:text-black transition-all flex items-center gap-1 z-10"
             >
-              <Code2 className="w-3 h-3" /> VER DATOS
+              <Code2 className="w-3 h-3" /> ADMIN
             </button>
           )}
 
-          <div className="flex items-center gap-4 mt-2">
-            <div className="bg-rose-500/20 p-2.5 rounded-full ring-2 ring-rose-500/30 shadow-[0_0_15px_rgba(244,63,94,0.4)]">
-              <CheckCircle2 className="w-6 h-6 text-rose-500" />
-            </div>
-            <div>
-              <h3 className="text-base font-black text-rose-400 uppercase tracking-widest">Resumen Final</h3>
-              <p className="text-xs font-bold uppercase tracking-widest text-zinc-500 mt-1 truncate max-w-[250px] md:max-w-[350px]">{rutinaNombre}</p>
-            </div>
+          <button 
+            onClick={onClose}
+            disabled={isSaving}
+            className="absolute top-4 right-4 text-zinc-500 hover:text-white bg-black/40 hover:bg-rose-500 rounded-full p-2 transition-all disabled:opacity-50"
+          >
+            <X className="w-4 h-4" />
+          </button>
+
+          <div className="mx-auto w-16 h-16 bg-rose-500/20 text-rose-500 rounded-full flex items-center justify-center mb-4 ring-2 ring-rose-500/40 shadow-[0_0_30px_rgba(244,63,94,0.3)]">
+            <Trophy className="w-8 h-8" />
           </div>
-          <button onClick={onClose} className="text-zinc-400 hover:text-white p-2.5 bg-zinc-900 border border-zinc-800 rounded-full transition-all hover:bg-rose-500 hover:text-white hover:border-rose-500 active:scale-95 absolute top-5 right-5 z-10" disabled={isSaving}>
-            <X className="w-5 h-5" />
+          <h2 className="text-xl font-black text-white uppercase tracking-widest">¡Bien Hecho!</h2>
+          <p className="text-xs text-rose-400/80 mt-1 uppercase tracking-widest font-bold truncate px-4">
+            {rutinaNombre}
+          </p>
+        </div>
+
+        {/* TABS (FIJO) */}
+        <div className="flex px-4 pt-4 border-b border-zinc-800 bg-zinc-950 shrink-0">
+          <button 
+            onClick={() => setActiveTab("resumen")}
+            className={`flex-1 flex items-center justify-center gap-2 pb-3 border-b-2 transition-all ${
+              activeTab === "resumen" 
+                ? "border-rose-500 text-rose-500" 
+                : "border-transparent text-zinc-500 hover:text-zinc-300"
+            }`}
+          >
+            <List className="w-4 h-4" />
+            <span className="text-[10px] font-black uppercase tracking-widest">Resumen de Sesión</span>
+          </button>
+          
+          <button 
+            onClick={() => setActiveTab("logros")}
+            className={`flex-1 flex items-center justify-center gap-2 pb-3 border-b-2 transition-all ${
+              activeTab === "logros" 
+                ? "border-amber-500 text-amber-500" 
+                : "border-transparent text-zinc-500 hover:text-zinc-300"
+            }`}
+          >
+            <Trophy className="w-4 h-4" />
+            <span className="text-[10px] font-black uppercase tracking-widest">Logros y Comunidad</span>
           </button>
         </div>
 
-        <div className={`p-6 md:p-8 space-y-8 overflow-y-auto max-h-[70vh] ${customScrollbar}`} onClick={() => setActiveTimePicker(null)}>
+        {/* 🔴 ÁREA SCROLLEABLE (flex-1 ocupa el espacio sobrante entre tabs y footer) */}
+        <div className={`flex-1 overflow-y-auto p-5 md:p-8 bg-zinc-950/50 ${customScrollbar}`} onClick={() => setActiveTimePicker(null)}>
           
-          <div className="space-y-4">
-            <div className="flex justify-between items-end">
-              <label className="text-[11px] text-zinc-400 font-bold uppercase tracking-widest flex items-center gap-2">
-                <Clock className="w-4 h-4 text-zinc-500" /> Tiempo de Sesión
-              </label>
-              <span className="text-[9px] text-rose-500 uppercase tracking-widest font-black bg-rose-500/10 px-2 py-1 rounded">Ajustable</span>
-            </div>
-            
-            <div className="flex items-center gap-3">
-              <div className="flex-1 relative">
-                <div 
-                  className="bg-zinc-900 border border-zinc-800 rounded-2xl p-3 flex flex-col items-center focus-within:border-rose-500/50 focus-within:bg-zinc-900 transition-colors cursor-pointer group hover:border-zinc-700"
-                  onClick={(e) => { e.stopPropagation(); setActiveTimePicker(activeTimePicker === 'horas' ? null : 'horas'); }}
-                >
-                  <div className="flex items-center justify-center gap-1 w-full">
-                    <input 
-                      type="number" min="0" value={horas} onChange={(e) => setHoras(Number(e.target.value))}
-                      className="w-full bg-transparent text-center text-3xl font-black font-mono text-white focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                    <ChevronDown className="w-4 h-4 text-zinc-600 group-hover:text-rose-500 transition-colors absolute right-3" />
-                  </div>
-                  <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-1">Horas</span>
+          {activeTab === 'resumen' && (
+            <div className="space-y-8 animate-in fade-in slide-in-from-left-2 duration-300">
+              <div className="space-y-4">
+                <div className="flex justify-between items-end">
+                  <label className="text-[11px] text-zinc-400 font-bold uppercase tracking-widest flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-zinc-500" /> Tiempo de Sesión
+                  </label>
+                  <span className="text-[9px] text-rose-500 uppercase tracking-widest font-black bg-rose-500/10 px-2 py-1 rounded">Ajustable</span>
                 </div>
-                {activeTimePicker === 'horas' && (
-                  <div className={`absolute top-full left-0 right-0 mt-2 bg-zinc-950 border border-zinc-700 rounded-xl shadow-2xl z-50 max-h-40 overflow-y-auto animate-in fade-in zoom-in-95 duration-100 ${customScrollbar}`}>
-                    {generarOpciones(12).map(num => (
-                      <button key={num} onClick={(e) => { e.stopPropagation(); setHoras(num); setActiveTimePicker(null); }} className="w-full text-center py-3 text-lg font-mono font-bold text-zinc-300 hover:bg-rose-500 hover:text-white transition-colors">{num}</button>
-                    ))}
+                
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 relative">
+                    <div 
+                      className="bg-zinc-900 border border-zinc-800 rounded-2xl p-3 flex flex-col items-center focus-within:border-rose-500/50 focus-within:bg-zinc-900 transition-colors cursor-pointer group hover:border-zinc-700"
+                      onClick={(e) => { e.stopPropagation(); setActiveTimePicker(activeTimePicker === 'horas' ? null : 'horas'); }}
+                    >
+                      <div className="flex items-center justify-center gap-1 w-full">
+                        <input 
+                          type="number" min="0" value={horas} onChange={(e) => setHoras(Number(e.target.value))}
+                          className="w-full bg-transparent text-center text-3xl font-black font-mono text-white focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                        <ChevronDown className="w-4 h-4 text-zinc-600 group-hover:text-rose-500 transition-colors absolute right-3" />
+                      </div>
+                      <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-1">Horas</span>
+                    </div>
+                    {activeTimePicker === 'horas' && (
+                      <div className={`absolute top-full left-0 right-0 mt-2 bg-zinc-950 border border-zinc-700 rounded-xl shadow-2xl z-50 max-h-40 overflow-y-auto animate-in fade-in zoom-in-95 duration-100 ${customScrollbar}`}>
+                        {generarOpciones(12).map(num => (
+                          <button key={num} onClick={(e) => { e.stopPropagation(); setHoras(num); setActiveTimePicker(null); }} className="w-full text-center py-3 text-lg font-mono font-bold text-zinc-300 hover:bg-rose-500 hover:text-white transition-colors">{num}</button>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-              
-              <span className="text-3xl font-black text-zinc-800 pb-4">:</span>
-              
-              <div className="flex-1 relative">
-                <div 
-                  className="bg-zinc-900 border border-zinc-800 rounded-2xl p-3 flex flex-col items-center focus-within:border-rose-500/50 focus-within:bg-zinc-900 transition-colors cursor-pointer group hover:border-zinc-700"
-                  onClick={(e) => { e.stopPropagation(); setActiveTimePicker(activeTimePicker === 'minutos' ? null : 'minutos'); }}
-                >
-                  <div className="flex items-center justify-center gap-1 w-full">
-                    <input 
-                      type="number" min="0" max="59" value={minutos} onChange={(e) => setMinutos(Number(e.target.value))}
-                      className="w-full bg-transparent text-center text-3xl font-black font-mono text-white focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                    <ChevronDown className="w-4 h-4 text-zinc-600 group-hover:text-rose-500 transition-colors absolute right-3" />
+                  
+                  <span className="text-3xl font-black text-zinc-800 pb-4">:</span>
+                  
+                  <div className="flex-1 relative">
+                    <div 
+                      className="bg-zinc-900 border border-zinc-800 rounded-2xl p-3 flex flex-col items-center focus-within:border-rose-500/50 focus-within:bg-zinc-900 transition-colors cursor-pointer group hover:border-zinc-700"
+                      onClick={(e) => { e.stopPropagation(); setActiveTimePicker(activeTimePicker === 'minutos' ? null : 'minutos'); }}
+                    >
+                      <div className="flex items-center justify-center gap-1 w-full">
+                        <input 
+                          type="number" min="0" max="59" value={minutos} onChange={(e) => setMinutos(Number(e.target.value))}
+                          className="w-full bg-transparent text-center text-3xl font-black font-mono text-white focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                        <ChevronDown className="w-4 h-4 text-zinc-600 group-hover:text-rose-500 transition-colors absolute right-3" />
+                      </div>
+                      <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-1">Mins</span>
+                    </div>
+                    {activeTimePicker === 'minutos' && (
+                      <div className={`absolute top-full left-0 right-0 mt-2 bg-zinc-950 border border-zinc-700 rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto animate-in fade-in zoom-in-95 duration-100 ${customScrollbar}`}>
+                        {generarOpciones(59).map(num => (
+                          <button key={num} onClick={(e) => { e.stopPropagation(); setMinutos(num); setActiveTimePicker(null); }} className="w-full text-center py-3 text-lg font-mono font-bold text-zinc-300 hover:bg-rose-500 hover:text-white transition-colors">{num}</button>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-1">Mins</span>
+
+                  <span className="text-3xl font-black text-zinc-800 pb-4">:</span>
+                  
+                  <div className="flex-1 relative">
+                    <div 
+                      className="bg-zinc-900 border border-zinc-800 rounded-2xl p-3 flex flex-col items-center focus-within:border-rose-500/50 focus-within:bg-zinc-900 transition-colors cursor-pointer group hover:border-zinc-700"
+                      onClick={(e) => { e.stopPropagation(); setActiveTimePicker(activeTimePicker === 'segundos' ? null : 'segundos'); }}
+                    >
+                      <div className="flex items-center justify-center gap-1 w-full">
+                        <input 
+                          type="number" min="0" max="59" value={segundos} onChange={(e) => setSegundos(Number(e.target.value))}
+                          className="w-full bg-transparent text-center text-3xl font-black font-mono text-white focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                        <ChevronDown className="w-4 h-4 text-zinc-600 group-hover:text-rose-500 transition-colors absolute right-3" />
+                      </div>
+                      <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-1">Segs</span>
+                    </div>
+                    {activeTimePicker === 'segundos' && (
+                      <div className={`absolute top-full left-0 right-0 mt-2 bg-zinc-950 border border-zinc-700 rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto animate-in fade-in zoom-in-95 duration-100 ${customScrollbar}`}>
+                        {generarOpciones(59).map(num => (
+                          <button key={num} onClick={(e) => { e.stopPropagation(); setSegundos(num); setActiveTimePicker(null); }} className="w-full text-center py-3 text-lg font-mono font-bold text-zinc-300 hover:bg-rose-500 hover:text-white transition-colors">{num}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                 </div>
-                {activeTimePicker === 'minutos' && (
-                  <div className={`absolute top-full left-0 right-0 mt-2 bg-zinc-950 border border-zinc-700 rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto animate-in fade-in zoom-in-95 duration-100 ${customScrollbar}`}>
-                    {generarOpciones(59).map(num => (
-                      <button key={num} onClick={(e) => { e.stopPropagation(); setMinutos(num); setActiveTimePicker(null); }} className="w-full text-center py-3 text-lg font-mono font-bold text-zinc-300 hover:bg-rose-500 hover:text-white transition-colors">{num}</button>
-                    ))}
-                  </div>
-                )}
               </div>
 
-              <span className="text-3xl font-black text-zinc-800 pb-4">:</span>
-              
-              <div className="flex-1 relative">
-                <div 
-                  className="bg-zinc-900 border border-zinc-800 rounded-2xl p-3 flex flex-col items-center focus-within:border-rose-500/50 focus-within:bg-zinc-900 transition-colors cursor-pointer group hover:border-zinc-700"
-                  onClick={(e) => { e.stopPropagation(); setActiveTimePicker(activeTimePicker === 'segundos' ? null : 'segundos'); }}
-                >
-                  <div className="flex items-center justify-center gap-1 w-full">
-                    <input 
-                      type="number" min="0" max="59" value={segundos} onChange={(e) => setSegundos(Number(e.target.value))}
-                      className="w-full bg-transparent text-center text-3xl font-black font-mono text-white focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                    <ChevronDown className="w-4 h-4 text-zinc-600 group-hover:text-rose-500 transition-colors absolute right-3" />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-zinc-900/40 border border-zinc-800/80 rounded-3xl p-5 flex flex-col items-center justify-center relative overflow-hidden">
+                  <div className="absolute -right-4 -top-4 opacity-5"><Flame className="w-24 h-24" /></div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Series Hechas</span>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-4xl font-black text-rose-500 drop-shadow-[0_0_10px_rgba(244,63,94,0.3)]">{seriesCompletadas}</span>
+                    <span className="text-sm font-bold text-zinc-600 mb-1">/ {seriesTotales}</span>
                   </div>
-                  <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-1">Segs</span>
+                  <span className="text-[9px] font-black uppercase tracking-widest text-rose-400 mt-2 bg-rose-500/10 border border-rose-500/20 px-2.5 py-1 rounded-full">
+                    {Math.round((seriesCompletadas / (seriesTotales || 1)) * 100)}% Completado
+                  </span>
                 </div>
-                {activeTimePicker === 'segundos' && (
-                  <div className={`absolute top-full left-0 right-0 mt-2 bg-zinc-950 border border-zinc-700 rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto animate-in fade-in zoom-in-95 duration-100 ${customScrollbar}`}>
-                    {generarOpciones(59).map(num => (
-                      <button key={num} onClick={(e) => { e.stopPropagation(); setSegundos(num); setActiveTimePicker(null); }} className="w-full text-center py-3 text-lg font-mono font-bold text-zinc-300 hover:bg-rose-500 hover:text-white transition-colors">{num}</button>
-                    ))}
+
+                <div className="bg-zinc-900/40 border border-zinc-800/80 rounded-3xl p-5 flex flex-col items-center justify-center relative overflow-hidden">
+                  <div className="absolute -right-4 -top-4 opacity-5"><TrendingUp className="w-24 h-24" /></div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Volumen Movido</span>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-3xl font-black text-white truncate max-w-[120px]">
+                      {volumenVisual >= 1000 ? (volumenVisual / 1000).toFixed(1) + 'k' : Math.round(volumenVisual)}
+                    </span>
+                    <span className="text-xs font-bold text-zinc-500 mb-1">{unidadTexto}</span>
                   </div>
-                )}
+                  
+                  <button 
+                    onClick={() => setIsLbsView(!isLbsView)}
+                    className="mt-2 text-[9px] font-black uppercase tracking-widest bg-zinc-800 border border-zinc-700 text-zinc-300 px-3 py-1.5 rounded-full hover:bg-rose-500 hover:text-white hover:border-rose-500 transition-colors"
+                  >
+                    Ver en {isLbsView ? 'KG' : 'LBS'}
+                  </button>
+                </div>
               </div>
-
             </div>
-          </div>
+          )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-zinc-900/40 border border-zinc-800/80 rounded-3xl p-5 flex flex-col items-center justify-center relative overflow-hidden">
-              <div className="absolute -right-4 -top-4 opacity-5"><Dumbbell className="w-24 h-24" /></div>
-              <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Series Ejecutadas</span>
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-4xl font-black text-white">{seriesCompletadas}</span>
-                <span className="text-sm font-bold text-zinc-600 mb-1">/ {seriesTotales}</span>
-              </div>
-              <span className="text-[9px] font-black uppercase tracking-widest text-rose-500 mt-2 bg-rose-500/10 px-2.5 py-1 rounded-full">
-                {Math.round((seriesCompletadas / (seriesTotales || 1)) * 100)}% Completado
-              </span>
+          {activeTab === 'logros' && (
+            <div className="animate-in fade-in slide-in-from-right-2 duration-300">
+              <LogrosRutina 
+                ejercicios={ejercicios}
+                postTexto={postTexto}
+                setPostTexto={setPostTexto}
+                postFotos={postFotos}
+                setPostFotos={setPostFotos}
+              />
             </div>
-
-            <div className="bg-zinc-900/40 border border-zinc-800/80 rounded-3xl p-5 flex flex-col items-center justify-center relative overflow-hidden">
-              <div className="absolute -right-4 -top-4 opacity-5"><TrendingUp className="w-24 h-24" /></div>
-              <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">Volumen Movido</span>
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-3xl font-black text-white truncate max-w-[120px]">
-                  {volumenVisual >= 1000 ? (volumenVisual / 1000).toFixed(1) + 'k' : Math.round(volumenVisual)}
-                </span>
-                <span className="text-xs font-bold text-zinc-500 mb-1">{unidadTexto}</span>
-              </div>
-              
-              <button 
-                onClick={() => setIsLbsView(!isLbsView)}
-                className="mt-2 text-[9px] font-black uppercase tracking-widest bg-zinc-800 text-zinc-400 px-3 py-1.5 rounded-full hover:bg-white hover:text-black transition-colors"
-              >
-                Ver en {isLbsView ? 'KG' : 'LBS'}
-              </button>
-            </div>
-          </div>
+          )}
 
         </div>
 
-        <div className="p-5 md:p-6 border-t border-zinc-800/80 bg-zinc-900/30 flex flex-col gap-3">
-          
+        {/* 🔴 FOOTER FIJO ABAJO DEL TODO */}
+        <div className="p-4 sm:p-6 border-t border-zinc-800/80 bg-zinc-900/30 flex flex-col gap-2.5 sm:gap-3 shrink-0">
           <button 
             onClick={() => handleSave(true)}
             disabled={isSaving}
-            className="w-full bg-rose-500 text-white py-4.5 rounded-2xl font-black uppercase tracking-[0.2em] text-[11px] shadow-[0_0_30px_rgba(244,63,94,0.4)] border border-rose-400/50 hover:bg-rose-400 hover:scale-[1.01] active:scale-[0.98] transition-all flex justify-center items-center gap-2 disabled:opacity-50"
+            className="w-full bg-rose-500 text-white py-3.5 sm:py-4.5 rounded-xl sm:rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] sm:text-[11px] shadow-[0_0_30px_rgba(244,63,94,0.4)] border border-rose-400/50 hover:bg-rose-400 hover:scale-[1.01] active:scale-[0.98] transition-all flex justify-center items-center gap-2 disabled:opacity-50"
           >
             {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <HardDrive className="w-5 h-5" />} 
             Guardar y Actualizar Plantilla
@@ -585,12 +657,11 @@ export default function GuardarRutina({ isOpen, onClose, ejercicios, elapsedTime
           <button 
             onClick={() => handleSave(false)}
             disabled={isSaving}
-            className="w-full bg-zinc-900 text-zinc-400 border border-zinc-800 py-4.5 rounded-2xl font-black uppercase tracking-[0.2em] text-[11px] hover:bg-zinc-800 hover:text-white hover:border-zinc-600 transition-all flex justify-center items-center gap-2 disabled:opacity-50"
+            className="w-full bg-zinc-900 text-zinc-400 border border-zinc-800 py-3.5 sm:py-4.5 rounded-xl sm:rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] sm:text-[11px] hover:bg-zinc-800 hover:text-white hover:border-zinc-600 transition-all flex justify-center items-center gap-2 disabled:opacity-50"
           >
             {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} 
             Solo Guardar Historial
           </button>
-
         </div>
 
       </div>
