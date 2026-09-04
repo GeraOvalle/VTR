@@ -19,6 +19,7 @@ interface NotificacionesContextType {
   notificaciones: Notificacion[];
   unreadCount: number;
   isTrayOpen: boolean;
+  liveRole: string | null; // 🔴 Añadimos el estado del rol en tiempo real
   toggleTray: () => void;
   closeTray: () => void;
   marcarLeida: (id: string) => void;
@@ -31,11 +32,17 @@ export function NotificacionesProvider({ children }: { children: ReactNode }) {
   const [notificaciones, setNotificaciones] = useState<Notificacion[]>([]);
   const [isTrayOpen, setIsTrayOpen] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+  
+  // 🔴 Estado para almacenar el rol que llegue por notificación
+  const [liveRole, setLiveRole] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       setUserId(user ? user.uid : null);
-      if (!user) setNotificaciones([]); 
+      if (!user) {
+        setNotificaciones([]); 
+        setLiveRole(null);
+      }
     });
     return () => unsubscribeAuth();
   }, []);
@@ -53,7 +60,14 @@ export function NotificacionesProvider({ children }: { children: ReactNode }) {
         id: doc.id,
         ...doc.data()
       })) as Notificacion[];
+      
       setNotificaciones(notifs);
+
+      // 🔴 INTERCEPTOR: Buscamos la notificación de sistema más reciente que contenga un cambio de rol
+      const roleNotif = notifs.find(n => n.tipo === "sistema" && n.dataExtra?.nuevoRol);
+      if (roleNotif && roleNotif.dataExtra?.nuevoRol) {
+        setLiveRole(roleNotif.dataExtra.nuevoRol);
+      }
     });
 
     return () => unsubscribeSnapshot();
@@ -73,7 +87,7 @@ export function NotificacionesProvider({ children }: { children: ReactNode }) {
 
   return (
     <NotificacionesContext.Provider value={{ 
-      notificaciones, unreadCount, isTrayOpen, toggleTray, closeTray, marcarLeida, borrarNotificacion 
+      notificaciones, unreadCount, isTrayOpen, liveRole, toggleTray, closeTray, marcarLeida, borrarNotificacion 
     }}>
       {children}
     </NotificacionesContext.Provider>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ArrowLeft, Users, ClipboardList, TrendingUp, ShieldCheck, Loader2, KeyRound, UserPlus, BookOpen } from "lucide-react";
+import { ArrowLeft, Users, ClipboardList, TrendingUp, ShieldCheck, Loader2, KeyRound, UserPlus, BookOpen, StickyNote } from "lucide-react";
 import { auth, db } from "../../lib/firebase";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 
@@ -9,21 +9,23 @@ import { doc, getDoc, updateDoc } from "firebase/firestore";
 import ListaClientesModule from "./submodulos/listaclientes/listaclientes";
 import PerfilMetricasModule from "./submodulos/perfilmetricas/perfilmetricas";
 import AsignarRutinasModule from "./submodulos/asignarrrutinas/asignarrutinas";
-import RutinasPrearmadasModule from "./submodulos/rutinasprearmadas/rutinasprearmadas"; // 🔴 IMPORTAMOS EL NUEVO MÓDULO
+import RutinasPrearmadasModule from "./submodulos/rutinasprearmadas/rutinasprearmadas";
+import BlockNotasModule from "./submodulos/blocknotas/blocknotas"; // 🔴 IMPORTAMOS EL NUEVO MÓDULO
 
 
 interface EntrenadorModuleProps {
   onBack: () => void;
 }
 
-// Añadimos "rutinas_prearmadas" y permitimos que el estado sea null (Menú Principal)
-type TrainerTab = "lista_clientes" | "asignar_rutinas" | "rutinas_prearmadas" | "perfil_metricas" | null;
+// Añadimos "block_notas" y permitimos que el estado sea null (Menú Principal)
+type TrainerTab = "lista_clientes" | "asignar_rutinas" | "rutinas_prearmadas" | "perfil_metricas" | "block_notas" | null;
 
 // Definimos los módulos para mapearlos fácilmente
 const MODULOS = [
   { id: "lista_clientes", label: "Mis Clientes", icon: Users },
   { id: "asignar_rutinas", label: "Asignar Rutinas", icon: ClipboardList },
   { id: "rutinas_prearmadas", label: "Prearmadas", icon: BookOpen },
+  { id: "block_notas", label: "Block de Notas", icon: StickyNote }, // 🔴 NUEVO MÓDULO AÑADIDO
   { id: "perfil_metricas", label: "Mi Perfil", icon: TrendingUp },
 ];
 
@@ -153,7 +155,7 @@ export default function EntrenadorModule({ onBack }: EntrenadorModuleProps) {
   return (
     <div className="w-full max-w-5xl mx-auto relative z-10 flex flex-col h-full min-h-[85vh] mt-4 sm:mt-8 animate-in fade-in duration-300">
       
-      {/* 🔴 VISTA 1: DASHBOARD (CUADRÍCULA 2x2) */}
+      {/* 🔴 VISTA 1: DASHBOARD (CUADRÍCULA 2x2/2x3) */}
       {!activeTab && (
         <div className="animate-in zoom-in-95 duration-300">
           
@@ -174,7 +176,7 @@ export default function EntrenadorModule({ onBack }: EntrenadorModuleProps) {
             PANEL DE ENTRENADOR
           </h1>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
             {MODULOS.map((mod) => (
               <button
                 key={mod.id}
@@ -198,12 +200,12 @@ export default function EntrenadorModule({ onBack }: EntrenadorModuleProps) {
         <div className="flex flex-col h-full flex-1 animate-in fade-in duration-300">
           
           {/* Top Bar Compacta */}
-          <div className="bg-zinc-900/50 backdrop-blur-md border border-white/10 rounded-2xl p-2 mb-6 flex justify-between items-center shadow-lg">
+          <div className="bg-zinc-900/50 backdrop-blur-md border border-white/10 rounded-2xl p-2 mb-6 flex justify-between items-center shadow-lg overflow-x-auto custom-scrollbar">
             
             {/* Botón Volver al Menú + Título Activo */}
             <button 
               onClick={() => setActiveTab(null)}
-              className="flex items-center gap-3 bg-white text-black px-4 py-3 rounded-xl hover:bg-zinc-200 transition-all active:scale-95"
+              className="flex items-center gap-3 bg-white text-black px-4 py-3 rounded-xl hover:bg-zinc-200 transition-all active:scale-95 shrink-0"
             >
               <ArrowLeft className="w-4 h-4 shrink-0" />
               <div className="flex items-center gap-2 border-l border-black/20 pl-3">
@@ -215,13 +217,13 @@ export default function EntrenadorModule({ onBack }: EntrenadorModuleProps) {
             </button>
 
             {/* Accesos Rápidos a Otros Módulos */}
-            <div className="flex gap-2 pr-1">
+            <div className="flex gap-2 pr-1 ml-4 shrink-0">
               {modulosInactivos.map(mod => (
                 <button
                   key={mod.id}
                   onClick={() => setActiveTab(mod.id as TrainerTab)}
                   title={mod.label}
-                  className="w-10 h-10 bg-black border border-white/10 rounded-xl flex items-center justify-center text-zinc-500 hover:text-white hover:border-white/30 transition-all active:scale-95 group"
+                  className="w-10 h-10 bg-black border border-white/10 rounded-xl flex items-center justify-center text-zinc-500 hover:text-white hover:border-white/30 transition-all active:scale-95 group shrink-0"
                 >
                   <mod.icon className="w-4 h-4 group-hover:scale-110 transition-transform" />
                 </button>
@@ -234,9 +236,10 @@ export default function EntrenadorModule({ onBack }: EntrenadorModuleProps) {
             {activeTab === "lista_clientes" && <ListaClientesModule trainerCodeShort={trainerCodeShort} />}
             {activeTab === "asignar_rutinas" && <AsignarRutinasModule />}
             {activeTab === "perfil_metricas" && <PerfilMetricasModule trainerCodeShort={trainerCodeShort} />}
-            
-            {/* 🔴 AHORA RENDERIZAMOS EL MÓDULO DE RUTINAS PREARMADAS REAL */}
             {activeTab === "rutinas_prearmadas" && <RutinasPrearmadasModule />}
+            
+            {/* 🔴 RENDERIZAMOS EL NUEVO MÓDULO DE BLOCK DE NOTAS */}
+            {activeTab === "block_notas" && <BlockNotasModule />}
           </div>
         </div>
       )}

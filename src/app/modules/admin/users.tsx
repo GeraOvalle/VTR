@@ -3,13 +3,16 @@
 import { useState, useEffect } from "react";
 import { ArrowLeft, Users, Loader2, User, Search, Shield, X, Calendar, Activity } from "lucide-react";
 import { db } from "../../lib/firebase";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
+// 🔴 IMPORTAMOS LA FUNCIÓN PARA NOTIFICAR AL USUARIO
+import { enviarNotificacion } from "../../lib/notificaciones";
 
 export default function UsersModule({ onBack }: { onBack: () => void }) {
   const [loading, setLoading] = useState(true);
   const [usuarios, setUsuarios] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
+  const [updatingRole, setUpdatingRole] = useState(false);
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -28,6 +31,36 @@ export default function UsersModule({ onBack }: { onBack: () => void }) {
     };
     fetchUsers();
   }, []);
+
+  const handleRoleChange = async (newRole: string) => {
+    if (!selectedUser || selectedUser.rol === newRole) return;
+    setUpdatingRole(true);
+    try {
+      const userRef = doc(db, "users", selectedUser.uid);
+      
+      // 1. Actualizamos en Firebase
+      await updateDoc(userRef, { rol: newRole });
+
+      // 🔴 2. Enviamos la notificación al usuario para que su app reaccione
+      await enviarNotificacion(
+        selectedUser.uid,
+        "Actualización de Cuenta",
+        `Tu nivel de cuenta ha sido modificado a: ${newRole.toUpperCase()}. ¡Disfruta tus nuevos beneficios!`,
+        "sistema",
+        { nuevoRol: newRole }
+      );
+
+      // 3. Actualizamos el estado local
+      setUsuarios(prev => prev.map(u => u.uid === selectedUser.uid ? { ...u, rol: newRole } : u));
+      setSelectedUser({ ...selectedUser, rol: newRole });
+      
+    } catch (error) {
+      console.error("Error al actualizar rol:", error);
+      alert("SISTEMA: Ocurrió un error al actualizar el rol.");
+    } finally {
+      setUpdatingRole(false);
+    }
+  };
 
   const filteredUsers = usuarios.filter(u => 
     (u.username || "").toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -96,6 +129,7 @@ export default function UsersModule({ onBack }: { onBack: () => void }) {
                     user.rol === "admin" ? "bg-rose-500/10 text-rose-500 border-rose-500/20" :
                     user.rol === "entrenador" ? "bg-amber-500/10 text-amber-500 border-amber-500/20" :
                     user.rol === "tester" ? "bg-cyan-500/10 text-cyan-500 border-cyan-500/20" :
+                    user.rol === "clasicoplus" ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" :
                     "bg-zinc-800 text-zinc-400 border-zinc-700"
                   }`}>
                     {user.rol || "clasico"}
@@ -144,13 +178,27 @@ export default function UsersModule({ onBack }: { onBack: () => void }) {
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-zinc-900 border border-zinc-800 p-3 rounded-xl flex flex-col items-center justify-center text-center">
                   <Shield className="w-4 h-4 text-cyan-500 mb-1" />
-                  <span className="text-xs font-black text-white uppercase">{selectedUser.rol || "Clásico"}</span>
-                  <span className="text-[8px] text-zinc-500 uppercase tracking-widest font-bold">Rol en App</span>
+                  {updatingRole ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-cyan-500 mb-0.5" />
+                  ) : (
+                    <select
+                      value={selectedUser.rol || "clasico"}
+                      onChange={(e) => handleRoleChange(e.target.value)}
+                      className="bg-transparent border-b border-zinc-700 pb-0.5 text-xs font-black uppercase text-center focus:outline-none cursor-pointer text-white appearance-none"
+                    >
+                      <option value="clasico" className="bg-zinc-900 text-white">Clásico</option>
+                      <option value="clasicoplus" className="bg-zinc-900 text-emerald-400">Clásico +</option>
+                      <option value="entrenador" className="bg-zinc-900 text-amber-500">Entrenador</option>
+                      <option value="tester" className="bg-zinc-900 text-cyan-500">Tester</option>
+                      <option value="admin" className="bg-zinc-900 text-rose-500">Admin</option>
+                    </select>
+                  )}
+                  <span className="text-[8px] text-zinc-500 uppercase tracking-widest font-bold mt-1">Cambiar Rol</span>
                 </div>
                 <div className="bg-zinc-900 border border-zinc-800 p-3 rounded-xl flex flex-col items-center justify-center text-center">
                   <Activity className="w-4 h-4 text-emerald-500 mb-1" />
                   <span className="text-xs font-black text-white uppercase">Activo</span>
-                  <span className="text-[8px] text-zinc-500 uppercase tracking-widest font-bold">Estado Actual</span>
+                  <span className="text-[8px] text-zinc-500 uppercase tracking-widest font-bold mt-1">Estado Actual</span>
                 </div>
               </div>
 

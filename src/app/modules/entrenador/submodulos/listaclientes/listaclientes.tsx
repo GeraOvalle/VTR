@@ -3,9 +3,10 @@
 import { useState, useEffect } from "react";
 import { Search, UserPlus, Users, UserSearch, X, Copy, Send, CheckCircle2, Loader2, User, Clock, ShieldAlert, Trash2, AlertTriangle, BellRing, ChevronRight } from "lucide-react";
 import { auth, db } from "../../../../lib/firebase";
-import { collection, query, where, getDocs, onSnapshot, orderBy, addDoc, serverTimestamp, deleteDoc, Firestore } from "firebase/firestore";
+// 🔴 AÑADIMOS 'doc' AL IMPORT
+import { collection, query, where, getDocs, onSnapshot, orderBy, addDoc, serverTimestamp, deleteDoc, doc } from "firebase/firestore";
 import { enviarNotificacion } from "../../../../lib/notificaciones";
-import DetallesCliente from "./detallesclientes"; // 🔴 Importamos el nuevo submódulo
+import DetallesCliente from "./detallesclientes"; 
 
 interface ListaClientesProps {
   trainerCodeShort: string;
@@ -508,8 +509,4 @@ export default function ListaClientesModule({ trainerCodeShort }: ListaClientesP
 
     </div>
   );
-}
-
-function doc(db: Firestore, arg1: string, uid: string, arg3: string, id: any): import("@firebase/firestore").DocumentReference<unknown, import("@firebase/firestore").DocumentData> {
-  throw new Error("Function not implemented.");
 }

@@ -1,13 +1,14 @@
 import { db } from "./firebase";
 import { collection, addDoc, doc, updateDoc, deleteDoc, serverTimestamp, Timestamp } from "firebase/firestore";
 
-// 🔴 Añadimos "rutina_modificada" a los tipos permitidos
 export type TipoNotificacion = "invitacion" | "rutina_nueva" | "rutina_modificada" | "sistema" | "mensaje";
 
 export interface DataExtraNotificacion {
   entrenadorId?: string;
   rutinaId?: string;
   clienteId?: string;
+  // 🔴 Añadimos explícitamente el nuevo campo para el cambio de roles
+  nuevoRol?: string; 
   [key: string]: any;
 }
 

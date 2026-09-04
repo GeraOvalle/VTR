@@ -12,7 +12,6 @@ import CreacionRutinaModule from "./creacionrutina/creacionrutina";
 import EjerciciosExtraccionModule from "./ejerciciosextraccion";
 import EjerciciosTraduccionModule from "./ejerciciostraduccion";
 
-// IMPORTAMOS EL CONTEXTO GLOBAL
 import { useWorkout } from "../../context/workoutcontext";
 
 interface MisRutinasModuleProps {
@@ -25,6 +24,7 @@ interface Rutina {
   ejercicios?: any[];
   creadoEn?: any;
   icono?: string;
+  asignadaPor?: string | null;
 }
 
 const EMOJIS_RUTINA = [
@@ -53,17 +53,14 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
   
   const [rutinas, setRutinas] = useState<Rutina[]>([]);
   
-  // TRAEMOS LA FUNCIÓN DEL CEREBRO GLOBAL
   const { iniciarEntrenamiento } = useWorkout();
 
-  // Estados para Pop-ups e Interfaz
   const [iconModalRoutineId, setIconModalRoutineId] = useState<string | null>(null);
   const [selectedEmoji, setSelectedEmoji] = useState<string>("💪");
   const [isSavingIcon, setIsSavingIcon] = useState(false);
   
   const [activeSettingsMenu, setActiveSettingsMenu] = useState<string | null>(null);
   
-  // Estados para Alertas Custom y Reportes
   const [alertConfig, setAlertConfig] = useState<{
     type: 'success' | 'error' | 'warning';
     title: string;
@@ -78,12 +75,10 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
   const [reportComment, setReportComment] = useState("");
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
 
-  // Lógica de Permisos según el Rol (Sin Tester)
   const isPremium = ["clasicoplus", "entrenador", "admin"].includes(rol);
   const MAX_RUTINAS = 4;
   const espaciosLibres = isPremium ? 0 : Math.max(0, MAX_RUTINAS - rutinas.length);
 
-  // Ref para cerrar el menú desplegable al hacer clic fuera
   const dropdownRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -95,7 +90,6 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Cargar datos
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
       if (user) {
@@ -108,10 +102,10 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
           const q = query(rutinasRef, orderBy("creadoEn", "desc"));
           const rutinasSnap = await getDocs(q);
           
-          const rutinasData = rutinasSnap.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-          })) as Rutina[];
+          // 🔴 FILTRO: Solo mapeamos las rutinas que NO tengan el campo asignadaPor
+          const rutinasData = rutinasSnap.docs
+            .map(doc => ({ id: doc.id, ...doc.data() } as Rutina))
+            .filter(rutina => !rutina.asignadaPor);
           
           setRutinas(rutinasData);
         } catch (error) {
@@ -124,7 +118,6 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
     return () => unsubscribe();
   }, [showCreacion]); 
 
-  // 🔴 INTERCEPTOR: Evita iniciar otra rutina si ya hay una corriendo
   const handleIniciarClick = (rutina: Rutina) => {
     const user = auth.currentUser;
     if (user) {
@@ -147,7 +140,6 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
     iniciarEntrenamiento(rutina.id, rutina.nombre);
   };
 
-  // Acciones de Rutinas
   const handleCreateNew = () => {
     sessionStorage.removeItem("cv_edit_rutina_id");
     setShowCreacion(true);
@@ -179,7 +171,6 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
     }
   };
 
-  // Lógica para Borrar Rutina
   const handleDeleteRoutineClick = (rutina: Rutina) => {
     setAlertConfig({
       type: 'warning',
@@ -214,7 +205,6 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
     }
   };
 
-  // Reporte de Errores
   const handleSendReport = async () => {
     if (!reportReason) {
       setAlertConfig({ type: "warning", title: "Atención", message: "Selecciona un motivo para el reporte." });
@@ -260,14 +250,12 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
   if (showTranslation) return <EjerciciosTraduccionModule onBack={() => setShowTranslation(false)} />;
   if (showCreacion) return <CreacionRutinaModule onBack={() => setShowCreacion(false)} />;
   
-  // ESTILOS COMPACTOS PARA TARJETAS EN FLEXBOX
   const cardStyle = "bg-zinc-950/80 backdrop-blur-xl border border-white/20 rounded-2xl p-2 md:p-4 shadow-[0_0_30px_-10px_rgba(255,255,255,0.15)] ring-1 ring-white/10 hover:ring-white/30 transition-all flex flex-col relative overflow-visible w-[calc(33.33%-0.5rem)] md:w-40 lg:w-48 aspect-[3/4.5] md:aspect-auto md:min-h-[220px]";
 
   return (
     <>
       <main className="fixed inset-0 h-[100dvh] w-full bg-black text-white flex flex-col p-4 md:p-6 relative overflow-hidden font-sans selection:bg-white/30" onClick={() => setActiveSettingsMenu(null)}>
         
-        {/* Fondos */}
         <div className="absolute inset-0 pointer-events-none z-0 opacity-40" style={{
           backgroundImage: `radial-gradient(circle at 50% 50%, rgba(38, 38, 38, 0.4) 0%, rgba(10, 10, 10, 0.8) 70%, #000000 100%), repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.03) 0px, rgba(255, 255, 255, 0.03) 2px, transparent 2px, transparent 8px), repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.03) 0px, rgba(255, 255, 255, 0.03) 2px, transparent 2px, transparent 8px)`,
           backgroundSize: '100% 100%, 16px 16px, 16px 16px'
@@ -276,7 +264,6 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
 
         <div className="w-full max-w-5xl mx-auto relative z-10 flex flex-col h-full overflow-hidden">
           
-          {/* Top Bar Fija */}
           <div className="flex justify-between items-center mb-4 border-b border-white/10 pb-4 shrink-0">
             <button onClick={onBack} className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors group">
               <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
@@ -308,15 +295,12 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
             </div>
           </div>
 
-          {/* ZONA DE TARJETAS: Bloquea scroll en clásico, lo permite en premium */}
           <div className={`w-full flex-1 flex flex-col ${isPremium ? 'overflow-y-auto custom-scrollbar' : 'overflow-hidden'} pb-4`}>
             <div className="flex flex-wrap justify-center content-start gap-2 md:gap-4 w-full flex-1">
               
-              {/* 1. RUTINAS EXISTENTES */}
               {(isPremium ? rutinas : rutinas.slice(0, MAX_RUTINAS)).map((rutina) => (
                 <div key={rutina.id} className={cardStyle}>
                   
-                  {/* Settings en esquina */}
                   <div className="absolute top-2 right-2 z-20" ref={activeSettingsMenu === rutina.id ? dropdownRef : null}>
                     <button 
                       onClick={(e) => {
@@ -344,7 +328,6 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
                     )}
                   </div>
 
-                  {/* Emoji & Título */}
                   <div className="flex-1 flex flex-col items-center justify-center mt-3 md:mt-4">
                     <button 
                       onClick={(e) => { 
@@ -367,7 +350,6 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
                     </span>
                   </div>
 
-                  {/* Botones de Acción Múltiple */}
                   <div className="flex gap-1.5 w-full mt-3 shrink-0">
                     <button 
                       onClick={() => handleIniciarClick(rutina)}
@@ -386,7 +368,6 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
                 </div>
               ))}
 
-              {/* 2. ESPACIOS LIBRES / CREACIÓN INFINITA */}
               {isPremium ? (
                 <button 
                   onClick={handleCreateNew}
@@ -422,7 +403,6 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
                 ))
               )}
 
-              {/* 3. TARJETA BLOQUEADA (SOLO CLÁSICO) */}
               {!isPremium && (
                 <div className={`${cardStyle} border-zinc-800 bg-zinc-950/50 opacity-70 items-center justify-center`}>
                   <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, #fff 10px, #fff 11px)' }}></div>
@@ -436,7 +416,6 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
               )}
             </div>
 
-            {/* Botón Inferior: Reportar Errores (Fijo al final del contenedor flex) */}
             <div className="mt-auto pt-6 flex justify-center shrink-0">
               <button 
                 onClick={() => setShowReportModal(true)}
@@ -450,7 +429,6 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
         </div>
       </main>
 
-      {/* POP-UP: SELECTOR DE EMOJIS */}
       {iconModalRoutineId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
           <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-sm flex flex-col shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden">
@@ -502,7 +480,6 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
         </div>
       )}
 
-      {/* POP-UP DE REPORTE DE SISTEMA */}
       {showReportModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-zinc-950 border border-amber-500/30 rounded-2xl w-full max-w-sm flex flex-col shadow-[0_0_50px_rgba(245,158,11,0.1)] overflow-hidden">
@@ -573,7 +550,6 @@ export default function MisRutinasModule({ onBack }: MisRutinasModuleProps) {
         </div>
       )}
 
-      {/* POP-UP DE ALERTA DEL SISTEMA */}
       {alertConfig && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in zoom-in-95 duration-200">
           <div className={`bg-zinc-950 border rounded-2xl w-full max-w-sm flex flex-col overflow-hidden shadow-2xl ${

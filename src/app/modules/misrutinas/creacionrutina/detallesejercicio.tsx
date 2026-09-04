@@ -5,13 +5,15 @@ import { X, Dumbbell, Activity, CheckCircle2, Fingerprint, AlertTriangle, Send, 
 import { db, auth } from "../../../lib/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 
-// 🔴 IMPORTACIÓN DEL NUEVO MÓDULO (Asegúrate de que el archivo se llame historialejercicios/index.tsx o ajuste la ruta según corresponda)
-import HistorialEjercicio from "./index";
+// 🔴 IMPORTACIÓN DEL NUEVO MÓDULO
+import HistorialEjercicio from "./historialejercicios/index";
 
 interface DetallesEjercicioProps {
   ejercicio: any;
   onClose: () => void;
   onAdd?: (ejercicio: any) => void; 
+  // 🔴 NUEVA PROPIEDAD AÑADIDA SIN BORRAR NADA MÁS
+  targetUserId?: string;
 }
 
 const MOTIVOS_REPORTE = [
@@ -23,7 +25,7 @@ const MOTIVOS_REPORTE = [
   "Otro problema"
 ];
 
-export default function DetallesEjercicio({ ejercicio, onClose, onAdd }: DetallesEjercicioProps) {
+export default function DetallesEjercicio({ ejercicio, onClose, onAdd, targetUserId }: DetallesEjercicioProps) {
   const [imageFailed, setImageFailed] = useState(false);
   const [activeTab, setActiveTab] = useState<"info" | "historial">("info");
 
@@ -239,7 +241,8 @@ export default function DetallesEjercicio({ ejercicio, onClose, onAdd }: Detalle
               {/* Tab 2: Historial */}
               {activeTab === "historial" && (
                 <div className="animate-in fade-in slide-in-from-right-2 duration-300">
-                  <HistorialEjercicio ejercicioId={ejercicio.id} />
+                  {/* 🔴 AQUÍ PASAMOS EL targetUserId AL COMPONENTE DE HISTORIAL */}
+                  <HistorialEjercicio ejercicioId={ejercicio.id} targetUserId={targetUserId} />
                 </div>
               )}
 

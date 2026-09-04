@@ -7,7 +7,7 @@ import {
   Bug, MessageSquare, Send, CheckCircle2, Bell, CircleDollarSign
 } from "lucide-react";
 import { auth, db } from "../../lib/firebase";
-import { doc, getDoc, collection, addDoc, getDocs } from "firebase/firestore";
+import { doc, collection, addDoc, getDocs, onSnapshot } from "firebase/firestore";
 import { signOut, onAuthStateChanged } from "firebase/auth";
 
 import PerfilModule from "../perfil/perfil";
@@ -68,40 +68,52 @@ export default function HomeModule() {
   }, [activeView]);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    let unsubDoc: () => void;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
         try {
           const userDocRef = doc(db, "users", user.uid);
-          const userDocSnap = await getDoc(userDocRef);
           
-          if (userDocSnap.exists()) {
-            const userData = userDocSnap.data();
-            setFotoPerfil(userData.fotoPerfil || null);
-            
-            const realRole = (userData.rol || "clasico").trim().toLowerCase();
-            setRol(realRole);
-            
-            const emailFallback = user.email?.split('@')[0] || "usuario";
-            setUsername(userData.usernameDisplay || userData.username || emailFallback);
-            
-            setObjetivos(userData.objetivos || []);
+          // 🔴 REEMPLAZO DE getDoc POR onSnapshot PARA ESCUCHAR CAMBIOS EN TIEMPO REAL
+          unsubDoc = onSnapshot(userDocRef, async (userDocSnap) => {
+            if (userDocSnap.exists()) {
+              const userData = userDocSnap.data();
+              setFotoPerfil(userData.fotoPerfil || null);
+              
+              const realRole = (userData.rol || "clasico").trim().toLowerCase();
+              setRol(realRole);
+              
+              const emailFallback = user.email?.split('@')[0] || "usuario";
+              setUsername(userData.usernameDisplay || userData.username || emailFallback);
+              
+              setObjetivos(userData.objetivos || []);
 
-            const entrenadoresRef = collection(db, "users", user.uid, "entrenadores_vinculados");
-            const entrenadoresSnap = await getDocs(entrenadoresRef);
-            
-            const tieneArrayActivos = userData.entrenadoresActivos && userData.entrenadoresActivos.length > 0;
-            const tieneIdRaiz = !!userData.entrenadorId;
+              // Los entrenadores vinculados seguimos trayéndolos al detectar un cambio de perfil
+              const entrenadoresRef = collection(db, "users", user.uid, "entrenadores_vinculados");
+              const entrenadoresSnap = await getDocs(entrenadoresRef);
+              
+              const tieneArrayActivos = userData.entrenadoresActivos && userData.entrenadoresActivos.length > 0;
+              const tieneIdRaiz = !!userData.entrenadorId;
 
-            setTieneEntrenador(!entrenadoresSnap.empty || tieneArrayActivos || tieneIdRaiz);
-          }
+              setTieneEntrenador(!entrenadoresSnap.empty || tieneArrayActivos || tieneIdRaiz);
+            }
+            setLoading(false);
+          });
+
         } catch (error) {
           console.error("Error al obtener perfil:", error);
+          setLoading(false);
         }
+      } else {
+        setLoading(false);
       }
-      setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeAuth();
+      if (unsubDoc) unsubDoc();
+    };
   }, []);
 
   // ESCUCHA DEL GESTO FÍSICO "ATRÁS" DEL CELULAR
@@ -163,7 +175,6 @@ export default function HomeModule() {
     }
   };
 
-  // Función para guardar el interés del usuario en roles premium
   const handleInterest = async (roleName: string) => {
     if (!auth.currentUser) return;
     setSendingInterest(roleName);
@@ -200,13 +211,11 @@ export default function HomeModule() {
   if (activeView === "rutinasasignadas") return <RutinasAsignadasModule onBack={() => setActiveView("dashboard")} />;
   if (activeView === "admin") return <AdminModule onBack={() => setActiveView("dashboard")} />;
 
-  // ESTILOS DE TARJETAS (FLEXIBLE)
   const cardBaseStyle = "bg-zinc-950/80 backdrop-blur-md border border-white/20 rounded-2xl flex flex-col items-center justify-center gap-2 hover:bg-white/5 hover:border-white/60 shadow-[0_0_30px_-10px_rgba(255,255,255,0.15)] ring-1 ring-white/10 hover:ring-white/30 transition-all active:scale-[0.98] group aspect-square w-[calc(33.33%-0.5rem)] md:w-32 md:h-32 flex-shrink-0";
 
   return (
     <main className="fixed inset-0 h-[100dvh] w-full bg-black text-white flex flex-col items-center p-4 relative overflow-hidden font-sans selection:bg-white/30">
       
-      {/* Fondos */}
       <div 
         className="absolute inset-0 pointer-events-none z-0 opacity-40"
         style={{
@@ -223,7 +232,6 @@ export default function HomeModule() {
       </div>
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-transparent via-black/80 to-black pointer-events-none z-0"></div>
 
-      {/* BOTÓN DE NOTIFICACIONES */}
       <div className="absolute top-4 right-4 sm:top-6 sm:right-6 z-50">
         <button 
           onClick={toggleTray}
@@ -245,10 +253,8 @@ export default function HomeModule() {
         </div>
       )}
 
-      {/* Contenedor Principal */}
       <div className="w-full max-w-3xl relative z-10 flex flex-col items-center mt-2 flex-1 overflow-hidden pb-2">
         
-        {/* HEADER */}
         <div className="flex flex-col items-center text-center mb-4 w-full pt-4 shrink-0">
           
           <div 
@@ -288,7 +294,6 @@ export default function HomeModule() {
           )}
         </div>
 
-        {/* SISTEMA DE TARJETAS */}
         <div className="w-full flex-1 flex flex-col justify-center overflow-hidden px-1">
           <div className="flex flex-wrap justify-center content-center gap-3 w-full h-full max-w-2xl mx-auto">
             
@@ -320,7 +325,8 @@ export default function HomeModule() {
               </span>
             </button>
 
-            {((rol === "clasico" && tieneEntrenador) || rol === "entrenador" || rol === "admin") && (
+            {/* 🔴 CORRECCIÓN: Agregamos 'clasicoplus' a la lógica de mostrar el módulo de rutinas asignadas */}
+            {(((rol === "clasico" || rol === "clasicoplus") && tieneEntrenador) || rol === "entrenador" || rol === "admin") && (
               <button onClick={() => setActiveView("rutinasasignadas")} className={cardBaseStyle}>
                 <ClipboardList className="w-6 h-6 md:w-7 md:h-7 text-zinc-300 group-hover:text-white transition-colors" />
                 <span className="text-[8px] md:text-[9px] text-zinc-400 group-hover:text-white font-black uppercase tracking-[0.15em] text-center leading-tight">
@@ -375,7 +381,6 @@ export default function HomeModule() {
 
       </div>
 
-      {/* MODAL DE REPORTE */}
       {showReportModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in">
           <div className="bg-zinc-950 border border-white/20 rounded-2xl w-full max-w-sm flex flex-col shadow-[0_0_50px_rgba(255,255,255,0.1)] relative overflow-hidden">
@@ -439,7 +444,6 @@ export default function HomeModule() {
         </div>
       )}
 
-      {/* MODAL INFORMATIVO DE ROLES CON SISTEMA DE INTERÉS */}
       {showRoleModal && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
           <div className="bg-zinc-950 border border-white/20 rounded-2xl w-full max-w-sm flex flex-col shadow-[0_0_50px_rgba(255,255,255,0.1)] relative overflow-hidden">

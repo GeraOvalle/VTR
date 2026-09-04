@@ -2,18 +2,19 @@
 
 import { useState, useEffect } from "react";
 import { Dumbbell, Repeat, TrendingUp, Zap, History, Loader2, AlertTriangle, X, Send, CheckCircle2 } from "lucide-react";
-import { auth, db } from "../../../lib/firebase";
+import { auth, db } from "../../../../lib/firebase";
 import { collection, query, where, getDocs, doc, getDoc, addDoc, serverTimestamp } from "firebase/firestore";
 
 // Submódulos
-import PestanaPeso from "./historialejercicios/pestanapeso";
-import PestanaReps from "./historialejercicios/pestanareps";
-import PestanaVolumen from "./historialejercicios/pestanavolumen";
-import Pestana1RM from "./historialejercicios/pestana1rm";
-import PestanaSesiones from "./historialejercicios/pestanasesiones";
+import PestanaPeso from "./pestanapeso";
+import PestanaReps from "./pestanareps";
+import PestanaVolumen from "./pestanavolumen";
+import Pestana1RM from "./pestana1rm";
+import PestanaSesiones from "./pestanasesiones";
 
 interface HistorialEjercicioProps {
   ejercicioId: string;
+  targetUserId?: string; // 🔴 PROPIEDAD AÑADIDA PARA RECIBIR EL ID DEL CLIENTE
 }
 
 const MOTIVOS_REPORTE_DATOS = [
@@ -25,7 +26,7 @@ const MOTIVOS_REPORTE_DATOS = [
   "Otro problema técnico"
 ];
 
-export default function HistorialEjercicio({ ejercicioId }: HistorialEjercicioProps) {
+export default function HistorialEjercicio({ ejercicioId, targetUserId }: HistorialEjercicioProps) {
   const [registros, setRegistros] = useState<any[]>([]);
   const [rol, setRol] = useState<string>("clasico"); 
   const [loading, setLoading] = useState(true);
@@ -41,21 +42,26 @@ export default function HistorialEjercicio({ ejercicioId }: HistorialEjercicioPr
   useEffect(() => {
     const fetchData = async () => {
       const user = auth.currentUser;
-      if (!user || !ejercicioId) {
+      // 🔴 SE DEFINE A QUIÉN SE LE BUSCA EL HISTORIAL (Cliente o Usuario Logueado)
+      const uidToFetch = targetUserId || user?.uid;
+
+      if (!uidToFetch || !ejercicioId) {
         setLoading(false);
         return;
       }
 
       try {
-        // 1. OBTENEMOS EL ROL DEL USUARIO
-        const userDoc = await getDoc(doc(db, "users", user.uid));
-        if (userDoc.exists()) {
-          setRol(userDoc.data().rol || "clasico");
+        // 1. OBTENEMOS EL ROL DEL USUARIO LOGUEADO (Para ver si tiene acceso premium a gráficas)
+        if (user) {
+          const userDoc = await getDoc(doc(db, "users", user.uid));
+          if (userDoc.exists()) {
+            setRol(userDoc.data().rol || "clasico");
+          }
         }
 
-        // 2. OBTENEMOS EL HISTORIAL DE PESOS
+        // 2. OBTENEMOS EL HISTORIAL DE PESOS DEL ID OBJETIVO
         const q = query(
-          collection(db, "users", user.uid, "pesosregistro"),
+          collection(db, "users", uidToFetch, "pesosregistro"),
           where("ejercicioId", "==", ejercicioId)
         );
         const snap = await getDocs(q);
@@ -71,6 +77,8 @@ export default function HistorialEjercicio({ ejercicioId }: HistorialEjercicioPr
           });
 
           setRegistros(rawData);
+        } else {
+          setRegistros([]); // Limpiar en caso de no haber datos
         }
       } catch (error) {
         console.error("Error al cargar historial y rol:", error);
@@ -80,7 +88,7 @@ export default function HistorialEjercicio({ ejercicioId }: HistorialEjercicioPr
     };
 
     fetchData();
-  }, [ejercicioId]);
+  }, [ejercicioId, targetUserId]);
 
   // 🔴 FUNCIÓN PARA ENVIAR EL REPORTE
   const handleSendReport = async () => {
