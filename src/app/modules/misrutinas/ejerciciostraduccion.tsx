@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { 
   ArrowLeft, Languages, Save, ChevronRight, ChevronLeft,
-  Loader2, CheckCircle2, Bot, Fingerprint, Clock, Database
+  Loader2, CheckCircle2, Bot, Fingerprint, Clock, Database, BrainCircuit
 } from "lucide-react";
 import { db } from "../../lib/firebase";
 import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
@@ -12,6 +12,144 @@ interface TraduccionProps {
   onBack: () => void;
 }
 
+// ==========================================
+// 🧠 DICCIONARIOS DE CONTEXTO FITNESS
+// ==========================================
+const DICC_MUSCULOS: Record<string, string> = {
+  "chest": "Pecho", "pectorals": "Pectorales",
+  "back": "Espalda", "lats": "Dorsales", "latissimus dorsi": "Dorsales",
+  "lower back": "Espalda Baja", "upper back": "Espalda Superior",
+  "traps": "Trapecios", "trapezius": "Trapecios",
+  "shoulders": "Hombro", "delts": "Deltoides", "deltoids": "Deltoides",
+  "arms": "Brazos", "biceps": "Bíceps", "triceps": "Tríceps", "forearms": "Antebrazos",
+  "legs": "Piernas", "quads": "Cuádriceps", "quadriceps": "Cuádriceps",
+  "hamstrings": "Femorales", "calves": "Gemelos", "glutes": "Glúteos",
+  "abs": "Abdomen", "core": "Core", "cardio": "Cardio", "neck": "Cuello",
+  "abductors": "Abductores", "adductors": "Aductores"
+};
+
+const DICC_EQUIPO: Record<string, string> = {
+  "body weight": "Peso Corporal", "bodyweight": "Peso Corporal",
+  "dumbbell": "Mancuerna", "barbell": "Barra",
+  "cable": "Polea", "machine": "Máquina", "leverage machine": "Máquina de Palanca",
+  "kettlebell": "Pesa Rusa", "band": "Banda de Resistencia", "resistance band": "Banda de Resistencia",
+  "medicine ball": "Balón Medicinal", "stability ball": "Pelota Suiza", "bosu ball": "Bosu",
+  "ez barbell": "Barra Z", "smith machine": "Máquina Smith",
+  "roller": "Rodillo", "step": "Step", "trap bar": "Barra Hexagonal", "rope": "Cuerda"
+};
+
+// 🔴 CORRECCIONES ESTRICTAS PARA TÍTULOS (El orden importa: FRASES LARGAS PRIMERO)
+const CORRECCIONES_TITULOS: [RegExp, string][] = [
+  // Poleas y Cables
+  [/cable underhand pulldown/gi, "jalón al pecho con agarre supino en polea"],
+  [/underhand pulldown/gi, "jalón al pecho con agarre supino"],
+  [/cable upright row/gi, "remo vertical en polea"],
+  [/upright row/gi, "remo vertical"],
+  [/pulldown con cable por debajo/gi, "jalón al pecho con agarre supino en polea"],
+  [/pulldown de cable por debajo/gi, "jalón al pecho con agarre supino en polea"],
+  [/remo vertical del cable/gi, "remo vertical en polea"],
+  [/remo vertical con cable/gi, "remo vertical en polea"],
+  [/jalón hacia abajo/gi, "jalón al pecho"],
+  [/empuje hacia abajo/gi, "extensión"],
+  [/empujar hacia abajo/gi, "extensión"],
+  [/agarre por debajo/gi, "agarre supino"],
+  [/por debajo/gi, "con agarre supino"],
+  [/agarre por encima/gi, "agarre prono"],
+  [/con cable/gi, "en polea"],
+  [/del cable/gi, "en polea"],
+  [/cable/gi, "polea"],
+  
+  // Elevaciones de talones (Calf Raises)
+  [/donkey calf raise/gi, "elevación de talones tipo burro"],
+  [/calf raises/gi, "elevaciones de talones"],
+  [/calf raise/gi, "elevación de talones"],
+  [/cría de cría de burro/gi, "elevación de talones tipo burro"], // Por si se escapa
+  [/cría de burro/gi, "talones tipo burro"],
+  
+  // Ejercicios Core / Crunch
+  [/floor crunch/gi, "crunch en el suelo"],
+  [/decline crunch/gi, "crunch declinado"],
+  [/incline crunch/gi, "crunch inclinado"],
+  [/crisis de declive/gi, "crunch declinado"],
+  [/crujido del piso/gi, "crunch en el suelo"],
+  [/piso crujiente/gi, "crunch en el suelo"],
+  [/crujidos/gi, "crunches"],
+  [/crujido/gi, "crunch"],
+  [/plank/gi, "plancha"],
+  [/tabla/gi, "plancha"],
+  
+  // Fondos y Push-ups
+  [/chest dip/gi, "fondos para pecho"],
+  [/triceps dip/gi, "fondos para tríceps"],
+  [/inmersión en el pecho/gi, "fondos para pecho"],
+  [/inmersión de tríceps/gi, "fondos para tríceps"],
+  [/fondos en el pecho/gi, "fondos para pecho"],
+  [/inmersiones/gi, "fondos"],
+  [/inmersión/gi, "fondo"],
+  [/push-up/gi, "flexiones"],
+  [/push up/gi, "flexiones"],
+  [/flexiones de reloj/gi, "flexiones (clock)"],
+  
+  // Mancuernas y Equipo
+  [/pesa de gimnasia/gi, "mancuerna"],
+  [/pesas de gimnasia/gi, "mancuernas"],
+  [/campana de la caldera/gi, "pesa rusa"],
+  [/barra con pesas/gi, "barra"],
+  
+  // Prensas y Press
+  [/prensa de banca/gi, "press de banca"],
+  [/prensa de piernas/gi, "prensa de piernas"],
+  [/prensa de hombros/gi, "press de hombros"],
+  [/prensa de/gi, "press de"],
+  [/rompecráneos/gi, "press francés"],
+  [/trituradora de cráneos/gi, "press francés"],
+  
+  // Aperturas / Fly
+  [/mosca con mancuernas/gi, "aperturas con mancuernas"],
+  [/mosca de/gi, "apertura de"],
+  [/moscas/gi, "aperturas"],
+  [/mosca/gi, "apertura"],
+  
+  // Remos, Curls y Piernas
+  [/fila vertical/gi, "remo vertical"],
+  [/fila/gi, "remo"],
+  [/filas/gi, "remos"],
+  [/rizo/gi, "curl"],
+  [/rizos/gi, "curls"],
+  [/contragolpe/gi, "patada de tríceps"],
+  [/estocadas/gi, "desplantes"],
+  [/estocada/gi, "desplante"],
+  [/pulldown/gi, "jalón al pecho"],
+  [/desplegable/gi, "jalón al pecho"]
+];
+
+// 🔴 CORRECCIONES MÁS SUAVES PARA INSTRUCCIONES (Para no dañar la gramática de oraciones)
+const CORRECCIONES_INSTRUCCIONES: [RegExp, string][] = [
+  [/pesa de gimnasia/gi, "mancuerna"],
+  [/pesas de gimnasia/gi, "mancuernas"],
+  [/campana de la caldera/gi, "pesa rusa"],
+  [/barra con pesas/gi, "barra"],
+  [/núcleo/gi, "core"],
+  [/terneros/gi, "gemelos"],
+  [/isquiotibiales/gi, "femorales"],
+  [/desplegable/gi, "polea"],
+  [/mosca/gi, "apertura"],
+  [/rizo/gi, "curl"],
+  [/tabla/gi, "plancha"],
+  [/inmersión/gi, "fondo"],
+  [/crujido/gi, "crunch"],
+  [/cría de burro/gi, "talones tipo burro"]
+];
+
+// Capitalización de títulos (Title Case pero ignorando conectores)
+const toTitleCase = (str: string) => {
+  const minorWords = ['de', 'en', 'el', 'la', 'los', 'las', 'con', 'para', 'a', 'y', 'o', 'del', 'al'];
+  return str.toLowerCase().split(' ').map((word, index) => {
+    if (index > 0 && minorWords.includes(word)) return word;
+    return word.charAt(0).toUpperCase() + word.slice(1);
+  }).join(' ');
+};
+
 export default function EjerciciosTraduccionModule({ onBack }: TraduccionProps) {
   const [ejercicios, setEjercicios] = useState<any[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -19,10 +157,8 @@ export default function EjerciciosTraduccionModule({ onBack }: TraduccionProps) 
   const [saving, setSaving] = useState(false);
   const [translating, setTranslating] = useState(false);
   
-  // Estadísticas en tiempo real
   const [stats, setStats] = useState({ total: 0, traducidos: 0, pendientes: 0 });
 
-  // Estados editables para la traducción
   const [nombreEs, setNombreEs] = useState("");
   const [parteCuerpoEs, setParteCuerpoEs] = useState("");
   const [musculoEs, setMusculoEs] = useState("");
@@ -30,21 +166,61 @@ export default function EjerciciosTraduccionModule({ onBack }: TraduccionProps) 
   const [equipoEs, setEquipoEs] = useState("");
   const [instruccionesEs, setInstruccionesEs] = useState<string[]>([]);
 
-  // Motor de Traducción Gratuito (Google Translate GTX)
-  const traducirTextoGratis = async (texto: string) => {
+  // ==========================================
+  // 🧠 MOTOR DE TRADUCCIÓN INTELIGENTE
+  // ==========================================
+  const traducirTextoInteligente = async (texto: string, contexto: "titulo" | "instruccion" | "musculo" | "equipo" = "instruccion") => {
     if (!texto) return "";
-    try {
-      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=es&dt=t&q=${encodeURIComponent(texto)}`;
-      const res = await fetch(url);
-      const data = await res.json();
-      return data[0].map((item: any) => item[0]).join("");
-    } catch (e) {
-      console.error("Error traduciendo:", e);
-      return texto; 
+    const txtLower = texto.trim().toLowerCase();
+    
+    // 1. Metadatos exactos se mapean sin usar API (100% precisos)
+    if (contexto === "musculo" && DICC_MUSCULOS[txtLower]) return DICC_MUSCULOS[txtLower];
+    if (contexto === "equipo" && DICC_EQUIPO[txtLower]) return DICC_EQUIPO[txtLower];
+
+    let traducido = texto;
+    let preProcesado = false;
+
+    // 2. Pre-Procesamiento para Títulos (Evita que Google rompa frases hechas en inglés)
+    if (contexto === "titulo") {
+      for (const [regex, reemplazo] of CORRECCIONES_TITULOS) {
+        // Si el texto ORIGINAL en inglés ya hace match con nuestra regla fuerte, lo reemplazamos directamente
+        if (regex.test(texto)) {
+          traducido = texto.replace(regex, reemplazo);
+          preProcesado = true; // Ya no lo mandamos a Google para que no lo arruine
+          break;
+        }
+      }
     }
+
+    // 3. Traducción de sintaxis con Google (Si no lo pre-procesamos)
+    if (!preProcesado) {
+      try {
+        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=es&dt=t&q=${encodeURIComponent(texto)}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        traducido = data[0].map((item: any) => item[0]).join("");
+      } catch (e) {
+        console.error("Error en API traductor:", e);
+      }
+    }
+
+    // 4. Post-Procesamiento Inteligente (Reemplazo de la jerga sobre lo que devolvió Google)
+    let corregido = traducido;
+    const correcciones = (contexto === "titulo" || contexto === "equipo") ? CORRECCIONES_TITULOS : CORRECCIONES_INSTRUCCIONES;
+    
+    correcciones.forEach(([regex, reemplazo]) => {
+      corregido = corregido.replace(regex, reemplazo);
+    });
+
+    // 5. Limpieza final de capitalización
+    if (contexto === "titulo" || contexto === "equipo" || contexto === "musculo") {
+      return toTitleCase(corregido);
+    }
+    
+    // Para instrucciones: solo primera letra mayúscula
+    return corregido.charAt(0).toUpperCase() + corregido.slice(1);
   };
 
-  // Cargar ejercicios desde Firestore
   useEffect(() => {
     const cargarEjercicios = async () => {
       try {
@@ -66,7 +242,6 @@ export default function EjerciciosTraduccionModule({ onBack }: TraduccionProps) 
         });
         
         if (lista.length > 0) {
-          // Buscar el primer ejercicio que NO está traducido para abrir directo ahí
           const primerPendiente = lista.findIndex(e => !e.traducido);
           const indexInicial = primerPendiente !== -1 ? primerPendiente : lista.length - 1;
           
@@ -85,7 +260,6 @@ export default function EjerciciosTraduccionModule({ onBack }: TraduccionProps) 
   const prepararEdicion = async (ejercicio: any) => {
     setTranslating(true);
 
-    // Si ya fue traducido y guardado antes, simplemente lo cargamos al panel sin volver a mandar a la API
     if (ejercicio.traducido) {
       setNombreEs(ejercicio.nombreEs || "");
       setParteCuerpoEs(ejercicio.parteCuerpoEs || "");
@@ -97,7 +271,6 @@ export default function EjerciciosTraduccionModule({ onBack }: TraduccionProps) 
       return;
     }
 
-    // Si es nuevo, mandamos a traducir
     setNombreEs("Traduciendo...");
     setParteCuerpoEs("Traduciendo...");
     setMusculoEs("Traduciendo...");
@@ -106,18 +279,18 @@ export default function EjerciciosTraduccionModule({ onBack }: TraduccionProps) 
     setInstruccionesEs(new Array(ejercicio.instrucciones?.length || 0).fill("Traduciendo..."));
 
     const [tNombre, tParte, tMusculo, tEquipo] = await Promise.all([
-      traducirTextoGratis(ejercicio.nombre),
-      traducirTextoGratis(ejercicio.parteCuerpo),
-      traducirTextoGratis(ejercicio.musculoObjetivo),
-      traducirTextoGratis(ejercicio.equipo)
+      traducirTextoInteligente(ejercicio.nombre, "titulo"),
+      traducirTextoInteligente(ejercicio.parteCuerpo, "musculo"),
+      traducirTextoInteligente(ejercicio.musculoObjetivo, "musculo"),
+      traducirTextoInteligente(ejercicio.equipo, "equipo")
     ]);
 
     const tSecundarios = await Promise.all(
-      (ejercicio.musculosSecundarios || []).map((musc: string) => traducirTextoGratis(musc))
+      (ejercicio.musculosSecundarios || []).map((musc: string) => traducirTextoInteligente(musc, "musculo"))
     );
 
     const tInst = await Promise.all(
-      (ejercicio.instrucciones || []).map((inst: string) => traducirTextoGratis(inst))
+      (ejercicio.instrucciones || []).map((inst: string) => traducirTextoInteligente(inst, "instruccion"))
     );
 
     setNombreEs(tNombre);
@@ -168,7 +341,6 @@ export default function EjerciciosTraduccionModule({ onBack }: TraduccionProps) 
 
       await updateDoc(docRef, datosNuevos);
 
-      // Actualizar el array local y las estadísticas en memoria
       const listaActualizada = [...ejercicios];
       const eraNuevo = !listaActualizada[currentIndex].traducido;
       listaActualizada[currentIndex] = { ...ejercicioActual, ...datosNuevos };
@@ -182,7 +354,6 @@ export default function EjerciciosTraduccionModule({ onBack }: TraduccionProps) 
         }));
       }
 
-      // Pasar al siguiente
       if (currentIndex < ejercicios.length - 1) {
         const nextIndex = currentIndex + 1;
         setCurrentIndex(nextIndex);
@@ -248,7 +419,6 @@ export default function EjerciciosTraduccionModule({ onBack }: TraduccionProps) 
             </h1>
           </div>
 
-          {/* INDICADORES DE PROGRESO */}
           <div className="flex items-center gap-2">
             <div className="hidden md:flex bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-3 py-1 rounded text-[10px] font-black tracking-widest items-center gap-1.5" title="Traducidos y verificados">
               <CheckCircle2 className="w-3 h-3" /> {stats.traducidos}
@@ -262,14 +432,12 @@ export default function EjerciciosTraduccionModule({ onBack }: TraduccionProps) 
           </div>
         </div>
 
-        {/* Workspace: Split Panel */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           
           {/* PANEL IZQUIERDO: Original */}
           <div className="bg-zinc-900/50 border border-zinc-700/50 rounded-xl p-5 shadow-inner relative">
             <div className="flex justify-between items-center mb-6 border-b border-zinc-700 pb-2">
               <h2 className="text-xs font-black uppercase tracking-widest text-zinc-500">Datos Base (Inglés)</h2>
-              {/* INDICADOR DE ID PARA FIREBASE */}
               <div 
                 className="flex items-center gap-1.5 bg-zinc-950/80 border border-zinc-700/50 px-2.5 py-1 rounded-md text-zinc-400 select-all cursor-text hover:text-cyan-400 hover:border-cyan-500/30 transition-colors"
                 title="Copia este ID para buscarlo en Firestore"
@@ -329,7 +497,7 @@ export default function EjerciciosTraduccionModule({ onBack }: TraduccionProps) 
               Revisión (Español)
               {translating ? (
                 <span className="text-[9px] text-cyan-500 animate-pulse flex items-center gap-1">
-                  <Bot className="w-3 h-3" /> Auto-Traduciendo...
+                  <BrainCircuit className="w-3 h-3" /> Auto-Traduciendo...
                 </span>
               ) : ejercicio.traducido ? (
                 <span className="text-[9px] text-emerald-500 flex items-center gap-1">
@@ -408,8 +576,6 @@ export default function EjerciciosTraduccionModule({ onBack }: TraduccionProps) 
 
       {/* Botonera Flotante de Navegación y Guardado */}
       <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3">
-        
-        {/* BOTÓN ATRÁS */}
         <button 
           onClick={irAnterior}
           disabled={currentIndex === 0 || saving || translating}
@@ -419,7 +585,6 @@ export default function EjerciciosTraduccionModule({ onBack }: TraduccionProps) 
           <ChevronLeft className="w-4 h-4" /> Atrás
         </button>
 
-        {/* BOTÓN GUARDAR Y SIGUIENTE */}
         <button 
           onClick={guardarYSiguiente}
           disabled={saving || translating}
@@ -433,9 +598,7 @@ export default function EjerciciosTraduccionModule({ onBack }: TraduccionProps) 
               : "VERIFICADO Y SIGUIENTE"}
           {!saving && <ChevronRight className="w-4 h-4 ml-1" />}
         </button>
-
       </div>
-
     </main>
   );
 }
